@@ -1,3 +1,7 @@
 node_modules/
-data/*.part
 dist/
+data/*.part
+# fetched by `npm run fetch-data`; the committed snapshot lives in data/seed-*/
+data/*.csv
+data/*.tsv
+data/*.json

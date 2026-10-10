@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Orbital Watch</title>
+  <meta name="description" content="A live satellite tracker built on public orbital data: every position, pass and close approach comes from one SGP4 model.">
+  <meta name="theme-color" content="#05070b">
+  <meta property="og:title" content="Orbital Watch">
+  <meta property="og:description" content="Live satellites, passes over your location, close approaches and space weather, all computed from public orbital elements.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <h1 class="sr-only">Orbital Watch, a live satellite tracker</h1>
+  <p class="sr-only">An animated view of every tracked active satellite around Earth, with tables for the selected satellite, its next passes over your location, predicted close approaches and space weather. All values are computed in your browser from public orbital elements.</p>
+
+  <header class="top">
+    <div class="brand">
+      <span class="mark" aria-hidden="true"></span>
+      <span class="title">ORBITAL WATCH</span>
+      <span class="sub">SGP4 · PUBLIC GP DATA</span>
+    </div>
+    <div class="search" role="search">
+      <label for="q" class="sr-only">Find a satellite by name or catalog number</label>
+      <input id="q" type="search" placeholder="Find satellite or NORAD id" autocomplete="off" spellcheck="false">
+      <ul id="q-results" class="results" role="listbox" hidden></ul>
+    </div>
+    <div class="clock">
+      <div><span class="k">UTC</span> <span id="clock-utc" class="v mono">--</span></div>
+      <div class="time-ctl" role="group" aria-label="Simulation speed">
+        <button type="button" data-warp="1" aria-pressed="true">LIVE</button>
+        <button type="button" data-warp="60">×60</button>
+        <button type="button" data-warp="600">×600</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="hero" aria-label="Orbital view">
+      <canvas id="hero" tabindex="0" aria-label="Orbital view. Drag to rotate, scroll or pinch to zoom, click a satellite to select it."></canvas>
+      <div class="hero-hud tl mono">
+        <div><span class="k">OBJECTS</span> <span id="hud-count">--</span></div>
+        <div><span class="k">ELEMENTS</span> <span id="hud-data">--</span></div>
+      </div>
+      <div class="hero-hud tr">
+        <div class="zoom" role="group" aria-label="Zoom presets">
+          <button type="button" data-view="9500">LEO</button>
+          <button type="button" data-view="30000">MEO</button>
+          <button type="button" data-view="52000">GEO</button>
+        </div>
+      </div>
+      <div class="hero-hud bl legend mono" aria-hidden="true">
+        <span><i class="dot pay"></i>PAYLOAD</span>
+        <span><i class="dot rb"></i>ROCKET BODY</span>
+        <span><i class="dot deb"></i>DEBRIS</span>
+        <span><i class="dot station"></i>CREWED</span>
+        <span class="fade">BRIGHT = FRESH ELEMENTS</span>
+      </div>
+      <div id="loading" class="loading mono">PROPAGATING…</div>
+    </section>
+
+    <aside class="side">
+      <section class="panel" id="p-object" aria-labelledby="h-object">
+        <h2 id="h-object"><span>Selected</span><span id="obj-tag" class="tag"></span></h2>
+        <div id="obj-name" class="obj-name">Click a satellite</div>
+        <dl id="obj-grid" class="grid mono"></dl>
+        <div id="obj-docked" class="docked"></div>
+      </section>
+
+      <section class="panel" id="p-passes" aria-labelledby="h-passes">
+        <h2 id="h-passes"><span>Passes over <span id="obs-name">Kraków</span></span>
+          <button type="button" id="locate" class="link">Use my location</button></h2>
+        <table class="tbl mono" aria-describedby="passes-note">
+          <thead><tr><th>Rise (local)</th><th>Max el</th><th>Dur</th><th>Dir</th><th></th></tr></thead>
+          <tbody id="passes"></tbody>
+        </table>
+        <p id="passes-note" class="note">Above 10°. ★ = sunlit while your sky is dark, so it can be seen by eye.</p>
+      </section>
+
+      <section class="panel" id="p-conj" aria-labelledby="h-conj">
+        <h2 id="h-conj"><span>Close approaches</span><span class="tag">SOCRATES</span></h2>
+        <table class="tbl mono">
+          <thead><tr><th>Pair</th><th>Miss</th><th>Speed</th><th>TCA in</th></tr></thead>
+          <tbody id="conj"></tbody>
+        </table>
+        <p class="note" id="conj-note"></p>
+      </section>
+    </aside>
+
+    <section class="band">
+      <section class="panel" id="p-wx" aria-labelledby="h-wx">
+        <h2 id="h-wx"><span>Space weather</span><span id="wx-tag" class="tag"></span></h2>
+        <div class="wx">
+          <div class="kp"><canvas id="kp" aria-label="Planetary Kp index, last 7 days"></canvas></div>
+          <dl id="wx-grid" class="grid mono"></dl>
+        </div>
+        <p class="note" id="wx-note"></p>
+      </section>
+      <section class="panel" id="p-census" aria-labelledby="h-census">
+        <h2 id="h-census"><span>Census</span></h2>
+        <table class="tbl mono census" id="census"></table>
+      </section>
+      <section class="panel" id="p-log" aria-labelledby="h-log">
+        <h2 id="h-log"><span>Log</span></h2>
+        <ol id="log" class="log mono"></ol>
+      </section>
+    </section>
+  </main>
+
+  <footer class="credits">
+    Orbital data and SOCRATES: <a href="https://celestrak.org">CelesTrak</a> (18 SDS / Space-Track) ·
+    Space weather: <a href="https://www.swpc.noaa.gov">NOAA SWPC</a> ·
+    SGP4: <a href="https://github.com/shashwatak/satellite-js">satellite.js</a> (MIT) ·
+    Coastlines: <a href="https://www.naturalearthdata.com">Natural Earth</a> ·
+    Positions are good to a few km and degrade with element age. Not for operations.
+  </footer>
+</body>
+</html>
