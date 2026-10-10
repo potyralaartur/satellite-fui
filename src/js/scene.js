@@ -8,7 +8,7 @@ import { eciAt, sunEciKm } from './orbit.js';
 
 const DEG = Math.PI / 180;
 const TRACK_SAMPLES = 160;
-const MIN_VIEW = 1500, FOCUS_FAR = 9000, FOCUS_NEAR = 3500;
+const MIN_VIEW = 150, FOCUS_FAR = 9000, FOCUS_NEAR = 3500;
 const smoothstep = x => { const c = Math.max(0, Math.min(1, x)); return c * c * (3 - 2 * c); };
 
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -494,7 +494,7 @@ export class Scene {
     const fresh = [0.45, 0.7, 1];
     const base = { pay: 0.5, rb: 0.42, deb: 0.32, station: 1 };
     const quiet = this.selected ? 0.6 : 1;
-    const grow = this.cam.view < 6000 ? 1.6 : 1;
+    const grow = this.cam.view < 1000 ? 2.4 : this.cam.view < 6000 ? 1.6 : 1;
     for (const [key, xy] of groups) {
       const [type, f] = key.split('|');
       const big = type === 'station' ? 3 : 1.25 * grow;
