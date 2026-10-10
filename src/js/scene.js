@@ -17,7 +17,7 @@ const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a
 export function readPalette() {
   const cs = getComputedStyle(document.documentElement);
   const rgb = name => cs.getPropertyValue(`--p-${name}-rgb`).trim() || '255,255,255';
-  return Object.fromEntries(['text', 'pay', 'rb', 'deb', 'station', 'deep', 'hot', 'warn', 'land', 'night', 'sun', 'observer']
+  return Object.fromEntries(['text', 'pay', 'rb', 'deb', 'station', 'deep', 'hot', 'warn', 'land', 'night', 'sun', 'observer', 'k1', 'k3', 'flux', 'dim']
     .map(k => [k, rgb(k)]));
 }
 
@@ -386,13 +386,13 @@ export class Scene {
         prev = s; prevBack = back; prevLeg = leg; prevZ = p[2];
       }
     }
-    const ink = { faint: pal.pay, station: pal.station, sel: pal.text, conjA: pal.hot, conjB: pal.warn };
-    const alpha = { faint: 0.07, station: 0.28, sel: 0.75, conjA: 0.8, conjB: 0.8 };
+    const ink = { faint: pal.flux, station: pal.station, sel: pal.text, conjA: pal.hot, conjB: pal.warn };
+    const alpha = { faint: 0.45, station: 0.28, sel: 0.75, conjA: 0.8, conjB: 0.8 };
     // The strongest lines breathe on a slow sine so the frame never sits perfectly still.
     const breathe = this.opts.reducedMotion ? 1 : 0.82 + 0.18 * Math.sin(performance.now() / 6500 * Math.PI * 2);
     for (const { style, back, leg, path } of Object.values(buckets)) {
       const a = alpha[style] * (back ? 0.25 : 1) * (style === 'faint' ? 1 : breathe) * (leg === 's' && style !== 'faint' ? 0.85 : 1);
-      const colour = leg === 's' ? pal.deep : ink[style];
+      const colour = leg === 's' && style !== 'faint' ? pal.deep : ink[style];
       if (style !== 'faint') { // wide tinted underlay
         ctx.lineWidth = 4; ctx.strokeStyle = `rgba(${colour}, ${a * 0.18})`; ctx.stroke(path);
       }
@@ -445,6 +445,30 @@ export class Scene {
     }
   }
 
+  // The selection cursor: a 12 px ring, four ticks turning slowly around it, and L-brackets
+  // that breathe in and out. Returns the bracket radius so the leader line starts at its corner.
+  drawCursor(x, y, color) {
+    const ctx = this.ctx, now = performance.now() / 1000;
+    const still = this.opts.reducedMotion;
+    ctx.strokeStyle = `rgba(${color}, 0.95)`; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2); ctx.stroke();
+    const rot = still ? 0 : now * 0.35;
+    ctx.beginPath();
+    for (let k = 0; k < 4; k++) {
+      const a = rot + k * Math.PI / 2, c = Math.cos(a), s = Math.sin(a);
+      ctx.moveTo(x + c * 15, y + s * 15); ctx.lineTo(x + c * 22, y + s * 22);
+    }
+    ctx.strokeStyle = `rgba(${this.pal.k3}, 0.9)`; ctx.stroke();
+    const r = 27 / Math.SQRT2 + (still ? 0 : 2 * Math.sin(now / 2.2 * Math.PI * 2)), arm = 6;
+    ctx.beginPath();
+    for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+      const cx = x + sx * r, cy = y + sy * r;
+      ctx.moveTo(cx - sx * arm, cy); ctx.lineTo(cx, cy); ctx.lineTo(cx, cy - sy * arm);
+    }
+    ctx.strokeStyle = `rgba(${color}, 0.8)`; ctx.stroke();
+    return r;
+  }
+
   drawLabels(cam, t) {
     const ctx = this.ctx, pal = this.pal;
     ctx.font = '10px "Space Mono", monospace';
@@ -455,12 +479,13 @@ export class Scene {
       const sx = this.screen[i * 2], sy = this.screen[i * 2 + 1];
       if (!Number.isFinite(sx)) return;
       ctx.strokeStyle = `rgba(${color}, 0.9)`; ctx.fillStyle = `rgba(${color}, 0.95)`; ctx.lineWidth = 1;
-      if (ring) { ctx.beginPath(); ctx.arc(sx, sy, 8, 0, Math.PI * 2); ctx.stroke(); }
+      const b = ring ? this.drawCursor(sx, sy, color) : 3;
       // Leader line up and to the right, flipped left when the text would leave the canvas.
       const tw = ctx.measureText(text).width;
-      const dir = sx + 33 + tw > this.w - this.insets.right - 8 ? -1 : 1;
-      const lx = sx + dir * 18, ly = sy - 16;
-      ctx.beginPath(); ctx.moveTo(sx + dir * (ring ? 6 : 3), sy - (ring ? 6 : 3)); ctx.lineTo(lx, ly); ctx.lineTo(lx + dir * 6, ly); ctx.stroke();
+      const dir = sx + b + 22 + tw > this.w - this.insets.right - 8 ? -1 : 1;
+      const lx = sx + dir * (b + 10), ly = sy - b - 8;
+      ctx.strokeStyle = `rgba(${color}, 0.9)`; ctx.fillStyle = `rgba(${color}, 0.95)`; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(sx + dir * b, sy - b); ctx.lineTo(lx, ly); ctx.lineTo(lx + dir * 6, ly); ctx.stroke();
       ctx.fillText(text, dir > 0 ? lx + 9 : lx - 9 - tw, ly);
     };
     for (const o of this.leaders) {

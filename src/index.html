@@ -5,13 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Orbital Watch</title>
   <meta name="description" content="A live satellite tracker built on public orbital data: every position, pass and close approach comes from one SGP4 model.">
-  <meta name="theme-color" content="#05070b">
+  <meta name="theme-color" content="#04061a">
   <meta property="og:title" content="Orbital Watch">
   <meta property="og:description" content="Live satellites, passes over your location, close approaches and space weather, all computed from public orbital elements.">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
   <script type="module" src="app.js"></script>
 </head>
@@ -20,113 +20,131 @@
   <p class="sr-only">An animated view of every tracked active satellite around Earth, with tables for the selected satellite, its next passes over your location, predicted close approaches and space weather. All values are computed in your browser from public orbital elements.</p>
 
   <header class="top">
-    <div class="brand">
-      <span class="mark" aria-hidden="true"></span>
-      <span class="title">ORBITAL WATCH</span>
-      <span class="sub">SGP4 · PUBLIC GP DATA</span>
+    <div class="cell brand">
+      <span class="r1">ORBITAL WATCH</span>
+      <span class="r2">SGP4 · CELESTRAK GP · ONE MODEL</span>
     </div>
-    <div class="search" role="search">
+    <div class="cell opt-w">
+      <span class="r1"><span id="tb-obs-name">KRAKÓW</span> OBSERVER</span>
+      <span class="r2" id="tb-obs">50.06° N 19.94° E</span>
+    </div>
+    <div class="cell fig">
+      <span class="big" id="tb-count">--</span>
+      <span class="r2">TRACKED · <span id="tb-sets">--</span> ELEMENT SETS</span>
+    </div>
+    <div class="cell fig opt-w">
+      <span class="big" id="tb-sky">--</span>
+      <span class="r2">ABOVE HORIZON NOW</span>
+    </div>
+    <div class="cell fig">
+      <span class="big" id="tb-kp">--</span>
+      <span class="r2" id="tb-kp-sub">PLANETARY Kp</span>
+    </div>
+    <div class="cell fig opt-x">
+      <span class="big" id="tb-tca">--</span>
+      <span class="r2" id="tb-tca-sub">NEXT CLOSE APPROACH</span>
+    </div>
+    <div class="cell search" role="search">
       <label for="q" class="sr-only">Find a satellite by name or catalog number</label>
-      <input id="q" type="search" placeholder="Find satellite or NORAD id" autocomplete="off" spellcheck="false">
+      <input id="q" type="search" placeholder="FIND SATELLITE / NORAD ID" autocomplete="off" spellcheck="false">
       <ul id="q-results" class="results" role="listbox" hidden></ul>
     </div>
-    <div class="clock">
-      <div><span class="k">UTC</span> <span id="clock-utc" class="v mono">--</span></div>
-      <div class="time-ctl" role="group" aria-label="Simulation speed">
-        <button type="button" data-warp="1" aria-pressed="true">LIVE</button>
+    <div class="cell clock">
+      <span class="r1"><span id="clock-utc" class="num">--</span> UTC</span>
+      <span class="time-ctl" role="group" aria-label="Simulation speed">
+        <button type="button" data-warp="1" aria-pressed="true"><i class="pip" aria-hidden="true"></i>LIVE</button>
         <button type="button" data-warp="60">×60</button>
         <button type="button" data-warp="600">×600</button>
-      </div>
+      </span>
     </div>
   </header>
+  <div class="ruler" aria-hidden="true"></div>
 
   <main class="layout">
     <section class="hero" aria-label="Orbital view">
       <canvas id="hero" tabindex="0" aria-label="Orbital view. Drag to rotate, scroll or pinch to zoom, click a satellite to select it."></canvas>
-      <div class="hero-hud tl mono">
-        <div><span class="k">OBJECTS</span> <span id="hud-count">--</span></div>
-        <div><span class="k">ELEMENTS</span> <span id="hud-data">--</span></div>
-        <div id="hud-census" class="census-line"></div>
-      </div>
-      <div class="hero-hud tr">
-        <div class="zoom" role="group" aria-label="Zoom presets">
-          <button type="button" data-view="9500">LEO</button>
-          <button type="button" data-view="30000">MEO</button>
-          <button type="button" data-view="52000">GEO</button>
+      <div class="vignette" aria-hidden="true"></div>
+      <div class="plate tl">
+        <div class="plate-t">ORBITAL SHELL · <span id="hud-count">--</span> OBJECTS</div>
+        <div class="plate-s">ELEMENTS <span id="hud-data">--</span> · <span id="hud-census"></span></div>
+        <div class="zoom" role="group" aria-label="Camera">
+          <button type="button" data-view="9500" aria-pressed="false">LEO</button>
+          <button type="button" data-view="27000" aria-pressed="true">SHELL</button>
+          <button type="button" data-view="52000" aria-pressed="false">GEO</button>
           <button type="button" id="tour" aria-pressed="true" title="Cut between views on its own when you're not interacting">TOUR</button>
         </div>
       </div>
-      <div class="hero-hud bl legend mono" aria-hidden="true">
-        <span><i class="dot pay"></i>PAYLOAD</span>
-        <span><i class="dot rb"></i>ROCKET BODY</span>
-        <span><i class="dot deb"></i>DEBRIS</span>
-        <span><i class="dot station"></i>CREWED</span>
-        <span class="fade">BRIGHT = FRESH ELEMENTS</span>
+      <div class="plate bl legend" aria-hidden="true">
+        <div class="plate-t">OBJECT · ELEMENT AGE</div>
+        <div class="sw"><span><i class="dot pay"></i>PAYLOAD</span><span><i class="dot rb"></i>ROCKET BODY</span><span><i class="dot deb"></i>DEBRIS</span><span><i class="dot station"></i>CREWED</span></div>
+        <div class="ramp"><span>FRESH</span><i></i><span>7 D</span></div>
+        <div class="sw"><span><i class="leg n"></i>NORTHBOUND</span><span><i class="leg s"></i>SOUTHBOUND</span></div>
       </div>
-      <div id="cut" class="cut" aria-live="polite"><span class="cut-n mono"></span><span class="cut-t"></span><span class="cut-s mono"></span></div>
-      <div id="loading" class="loading mono">PROPAGATING…</div>
+      <div id="cut" class="plate br cut" aria-live="polite"><span class="cut-n"></span><span class="cut-t"></span><span class="cut-s"></span></div>
+      <div id="loading" class="loading">PROPAGATING…</div>
     </section>
 
     <aside class="side">
       <section class="panel" id="p-object" aria-labelledby="h-object">
-        <h2 id="h-object"><span>Selected</span><span id="obj-tag" class="tag"></span></h2>
+        <h2 id="h-object"><span><b>SELECTED</b> OBJECT</span><span id="obj-tag" class="tag"></span></h2>
         <div id="obj-name" class="obj-name">Click a satellite</div>
-        <dl id="obj-grid" class="grid mono"></dl>
+        <dl id="obj-grid" class="grid"></dl>
         <div id="obj-docked" class="docked"></div>
         <div id="obj-radio" class="radio" hidden>
-          <h3>Radio <span class="tag">SatNOGS</span></h3>
-          <table class="tbl mono">
-            <thead><tr><th>Downlink</th><th>Mode</th><th>Use</th></tr></thead>
+          <h3><span><b>RADIO</b></span><span class="tag">SATNOGS</span></h3>
+          <table class="tbl">
+            <thead><tr><th>DOWNLINK</th><th>MODE</th><th>USE</th></tr></thead>
             <tbody id="radio"></tbody>
           </table>
         </div>
       </section>
 
       <section class="panel" id="p-passes" aria-labelledby="h-passes">
-        <h2 id="h-passes"><span>Passes over <span id="obs-name">Kraków</span></span>
-          <button type="button" id="locate" class="link">Use my location</button></h2>
-        <table class="tbl mono" aria-describedby="passes-note">
-          <thead><tr><th>Rise (local)</th><th>Max el</th><th>Dur</th><th>Dir</th><th></th></tr></thead>
+        <h2 id="h-passes"><span><b>PASSES</b> OVER <span id="obs-name">KRAKÓW</span></span>
+          <button type="button" id="locate" class="link">USE MY LOCATION</button></h2>
+        <table class="tbl" aria-describedby="passes-note">
+          <thead><tr><th>RISE (LOCAL)</th><th>MAX EL</th><th>DUR</th><th>DIR</th><th></th></tr></thead>
           <tbody id="passes"></tbody>
         </table>
-        <p id="passes-note" class="note">Above 10°. ★ = sunlit while your sky is dark, so it can be seen by eye.</p>
+        <p id="passes-note" class="note">Above 10°. ★ sunlit while your sky is dark: visible by eye.</p>
       </section>
 
       <section class="panel" id="p-conj" aria-labelledby="h-conj">
-        <h2 id="h-conj"><span>Close approaches</span><span class="tag">SOCRATES</span></h2>
-        <table class="tbl mono">
-          <thead><tr><th>Pair</th><th>Miss</th><th>Speed</th><th>TCA in</th></tr></thead>
+        <h2 id="h-conj"><span><b>CLOSE</b> APPROACHES</span><span class="tag">SOCRATES · MAX P</span></h2>
+        <table class="tbl">
+          <thead><tr><th>PAIR</th><th>MISS</th><th>SPEED</th><th>TCA IN</th></tr></thead>
           <tbody id="conj"></tbody>
         </table>
         <p class="note" id="conj-note"></p>
       </section>
 
       <section class="panel" id="p-decay" aria-labelledby="h-decay" hidden>
-        <h2 id="h-decay"><span>Decay watch</span><span class="tag">LOWEST PERIGEE</span></h2>
-        <table class="tbl mono">
-          <thead><tr><th>Object</th><th>Perigee</th><th>Elem age</th></tr></thead>
+        <h2 id="h-decay"><span><b>DECAY</b> WATCH</span><span class="tag">LOWEST PERIGEE</span></h2>
+        <table class="tbl">
+          <thead><tr><th>OBJECT</th><th>PERIGEE</th><th>ELEM AGE</th></tr></thead>
           <tbody id="decay"></tbody>
         </table>
-        <p class="note">Objects CelesTrak flags for possible near-term reentry. Low perigee and storms both speed up decay.</p>
+        <p class="note">Flagged by CelesTrak for possible near-term reentry. Storms and low perigee both speed decay.</p>
       </section>
     </aside>
 
     <section class="band">
       <section class="panel" id="p-wx" aria-labelledby="h-wx">
-        <h2 id="h-wx"><span>Space weather</span><span id="wx-tag" class="tag"></span></h2>
-        <div class="wx">
-          <div class="kp"><canvas id="kp" aria-label="Planetary Kp index, last 7 days"></canvas></div>
-          <dl id="wx-grid" class="grid mono"></dl>
-        </div>
+        <h2 id="h-wx"><span><b>Kp</b> · 7 DAYS</span><span id="wx-tag" class="tag"></span></h2>
+        <div class="kp"><canvas id="kp" aria-label="Planetary Kp index, last 7 days"></canvas></div>
+      </section>
+      <section class="panel" id="p-wind" aria-labelledby="h-wind">
+        <h2 id="h-wind"><span><b>SOLAR</b> WIND · L1</span><span class="tag">NOAA SWPC</span></h2>
+        <dl id="wx-grid" class="grid"></dl>
         <p class="note" id="wx-note"></p>
       </section>
       <section class="panel" id="p-sky" aria-labelledby="h-sky">
-        <h2 id="h-sky"><span>Sky over <span id="sky-obs">Kraków</span></span><span id="sky-tag" class="tag"></span></h2>
+        <h2 id="h-sky"><span><b>SKY</b> OVER <span id="sky-obs">KRAKÓW</span></span><span id="sky-tag" class="tag"></span></h2>
         <div class="sky"><canvas id="sky" aria-label="Satellites above the observer's horizon, by compass direction and elevation"></canvas></div>
       </section>
       <section class="panel" id="p-log" aria-labelledby="h-log">
-        <h2 id="h-log"><span>Log</span></h2>
-        <ol id="log" class="log mono"></ol>
+        <h2 id="h-log"><span><b>LOG</b> · <span id="obs-log">KRAKÓW</span></span><span class="tag" id="log-tag"></span></h2>
+        <ol id="log" class="log"></ol>
       </section>
     </section>
   </main>

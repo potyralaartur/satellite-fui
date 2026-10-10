@@ -2,7 +2,8 @@ import { loadSnapshot, search } from './data.js';
 import { Scene, readPalette } from './scene.js';
 import { stateOf, predictPasses, observerFrom, eciAt } from './orbit.js';
 import { skyPositions, drawSky } from './sky.js';
-import { renderObject, renderPasses, renderConjunctions, renderWeather, renderCensus, renderLog, renderDecay, fmt } from './panels.js';
+import { renderObject, renderPasses, renderConjunctions, renderWeather, renderCensus, renderDecay, fmt } from './panels.js';
+import { Log } from './log.js';
 
 const $ = id => document.getElementById(id);
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -28,14 +29,19 @@ function loadObserver() {
 }
 let observer = loadObserver();
 
-// How much of the canvas the floating HUD panels cover on each side (zero when they don't float).
+// How much of the canvas the right column and bottom strip cover (zero when they don't overlay it).
 function hudInsets() {
   const side = document.querySelector('.side');
   if (getComputedStyle(side).position !== 'absolute') return {};
   const c = $('hero').getBoundingClientRect();
   const s = side.getBoundingClientRect(), b = document.querySelector('.band').getBoundingClientRect();
-  const t = document.querySelector('.top').getBoundingClientRect();
-  return { top: t.bottom - c.top, right: c.right - s.left, bottom: c.bottom - b.top, left: 0 };
+  return { top: 0, right: Math.max(0, c.right - s.left), bottom: Math.max(0, c.bottom - b.top), left: 0 };
+}
+
+// One-shot highlight: the element snaps white and eases back.
+function flash(el) {
+  if (!el || reducedMotion) return;
+  el.classList.remove('hot-flash'); void el.offsetWidth; el.classList.add('hot-flash');
 }
 
 async function main() {
@@ -66,8 +72,8 @@ async function main() {
     const stale = passes.length && now.getTime() > passes[0].stop;
     if (force || passesFor !== selected || stale) {
       passes = selected ? predictPasses(selected, observer, now) : [];
+      if (passesFor !== selected && selected) logPass();
       passesFor = selected;
-      buildLog();
     }
     renderPasses(passes, now.getTime(), selected);
   }
@@ -90,30 +96,56 @@ async function main() {
     if (!(a && b)) $('conj-note').textContent =
       `Orbits for ${[!a && c.a.name, !b && c.b.name].filter(Boolean).join(' and ')} aren't in this snapshot, so the pair can't be drawn.`;
   }
-  const drawConj = () => renderConjunctions(snap.conjunctions, simNow().getTime(), conjIdx, pickConjunction);
+  const drawConj = () => { renderConjunctions(snap.conjunctions, simNow().getTime(), conjIdx, pickConjunction); scanStep(false); };
+
+  // The countdown to the next close approach in the top bar.
+  function nextTca() {
+    const now = simNow().getTime();
+    const c = snap.conjunctions.rows.filter(r => Date.parse(r.tca) > now).sort((x, y) => Date.parse(x.tca) - Date.parse(y.tca))[0];
+    $('tb-tca').textContent = c ? fmt.dur(Date.parse(c.tca) - now) : '--';
+    $('tb-tca').className = `big${c && c.rangeKm < 0.1 ? ' alarm' : ''}`;
+    $('tb-tca-sub').textContent = c ? `TCA ${c.a.name.slice(0, 14)} · ${fmt.km(c.rangeKm)}` : 'NO UPCOMING TCA';
+  }
+
+  // The verification cursor: steps down the close-approach and decay tables a row at a time.
+  let scanI = 0;
+  function scanStep(advance) {
+    if (reducedMotion) return;
+    if (advance) scanI++;
+    for (const id of ['conj', 'decay']) {
+      const rows = $(id).rows;
+      for (let i = 0; i < rows.length; i++) rows[i].classList.toggle('scan', i === scanI % rows.length);
+    }
+  }
+  setInterval(() => scanStep(true), 1100);
 
   // ---------- log ----------
-  function buildLog() {
+  // The snapshot's own events stream in first, oldest to newest; after that the feed is live:
+  // selections, rises and sets over the observer, and the tour's cuts.
+  const log = new Log($('log'), { reducedMotion, onCount: n => { $('log-tag').textContent = `${n} EVENTS · LIVE`; } });
+  {
     const out = [];
-    for (const a of snap.alerts) out.push({ t: Date.parse(a.t), text: `NOAA ${a.title}`, cls: 'warn' });
+    for (const a of snap.alerts) out.push({ t: Date.parse(a.t), tag: 'NOAA', text: a.title, cls: 'warn' });
     let prevG = 0;
     for (const r of snap.kp) {
       const g = Math.max(0, Math.round(r.kp) - 4);
-      if (g > prevG) out.push({ t: Date.parse(r.t), text: `Kp ${r.kp.toFixed(2)}: geomagnetic storm G${g}`, cls: g >= 3 ? 'hot' : 'warn' });
+      if (g > prevG) out.push({ t: Date.parse(r.t), tag: `STORM G${g}`, text: `Kp ${r.kp.toFixed(2)}, geomagnetic storm`, cls: g >= 3 ? 'hot' : 'warn' });
       prevG = g;
     }
-    for (const c of snap.conjunctions.rows.slice(0, 3)) {
-      out.push({ t: Date.parse(c.tca), text: `TCA ${c.a.name} / ${c.b.name}, ${fmt.km(c.rangeKm)} at ${c.speedKms.toFixed(1)} km/s`, cls: 'hot' });
-    }
     const newest = objects.reduce((m, o) => (o.intl > (m?.intl ?? '') ? o : m), null);
-    if (newest) out.push({ t: Date.parse(snap.generated), text: `Newest catalogued launch: ${newest.intl} ${newest.name}` });
+    if (newest) out.push({ t: Date.parse(snap.generated), tag: 'LAUNCH', text: `newest catalogued ${newest.intl} ${newest.name}`, cls: 'cool' });
     const freshest = objects.reduce((m, o) => Math.max(m, o.epoch), 0);
-    out.push({ t: freshest, text: `Newest element set epoch (${objects.length.toLocaleString()} sets loaded)`, cls: 'ok' });
-    if (selected && passes[0]) {
-      const p = passes[0];
-      out.push({ t: p.start, text: `${selected.name} rises over ${observer.label}, max ${p.maxEl.toFixed(0)}°${p.visible ? ', visible' : ''}`, cls: 'ok' });
+    out.push({ t: freshest, tag: 'EPOCH', text: `newest element set, ${objects.length.toLocaleString()} loaded`, cls: 'ok' });
+    for (const c of snap.conjunctions.rows.slice(0, 3)) {
+      out.push({ t: Date.parse(c.tca), tag: 'TCA', text: `${c.a.name} / ${c.b.name} ${fmt.km(c.rangeKm)} at ${c.speedKms.toFixed(1)} km/s`, cls: 'hot' });
     }
-    renderLog(out);
+    out.sort((x, y) => x.t - y.t).forEach(e => log.push(e));
+  }
+  function logPass() {
+    const p = passes[0];
+    log.push(p
+      ? { t: simNow().getTime(), tag: 'PASS', text: `${selected.name} rises ${fmt.local(p.start)}, max ${p.maxEl.toFixed(0)}°${p.visible ? ', visible' : ''}`, cls: 'ok' }
+      : { t: simNow().getTime(), tag: 'TRACK', text: `${selected.name}, no pass above 10° in 48 h` });
   }
 
   // ---------- search ----------
@@ -137,13 +169,18 @@ async function main() {
 
   // ---------- controls ----------
   document.querySelectorAll('[data-warp]').forEach(b => b.addEventListener('click', () => { setWarp(Number(b.dataset.warp)); refreshObject(true); drawConj(); }));
-  document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => scene.zoomTo(Number(b.dataset.view))));
+  const views = document.querySelectorAll('[data-view]');
+  views.forEach(b => b.addEventListener('click', () => {
+    scene.zoomTo(Number(b.dataset.view));
+    views.forEach(v => v.setAttribute('aria-pressed', String(v === b)));
+  }));
   const setObserver = o => {
     observer = o;
     const mine = o !== KRAKOW;
-    $('obs-name').textContent = mine ? `you (${o.latDeg.toFixed(1)}°, ${o.lonDeg.toFixed(1)}°)` : 'Kraków';
-    $('sky-obs').textContent = mine ? 'you' : 'Kraków';
-    $('locate').textContent = mine ? 'Reset to Kraków' : 'Use my location';
+    const name = mine ? 'YOU' : 'KRAKÓW';
+    $('obs-name').textContent = $('sky-obs').textContent = $('obs-log').textContent = $('tb-obs-name').textContent = name;
+    $('tb-obs').textContent = `${Math.abs(o.latDeg).toFixed(2)}° ${o.latDeg >= 0 ? 'N' : 'S'} ${Math.abs(o.lonDeg).toFixed(2)}° ${o.lonDeg >= 0 ? 'E' : 'W'}`;
+    $('locate').textContent = mine ? 'RESET TO KRAKÓW' : 'USE MY LOCATION';
     refreshObject(true);
   };
   $('locate').addEventListener('click', () => {
@@ -152,20 +189,22 @@ async function main() {
       setObserver(KRAKOW);
       return;
     }
-    if (!navigator.geolocation) { $('locate').textContent = 'Location unavailable'; return; }
-    $('locate').textContent = 'Locating…';
+    if (!navigator.geolocation) { $('locate').textContent = 'LOCATION UNAVAILABLE'; return; }
+    $('locate').textContent = 'LOCATING…';
     navigator.geolocation.getCurrentPosition(pos => {
       const lat = Math.round(pos.coords.latitude * 100) / 100, lon = Math.round(pos.coords.longitude * 100) / 100;
       try { localStorage.setItem('observer', JSON.stringify({ lat, lon, label: 'You' })); } catch { /* ignore */ }
       setObserver(observerFrom(lat, lon, 0.2, 'You'));
-    }, () => { $('locate').textContent = 'Location unavailable'; }, { timeout: 10000 });
+    }, () => { $('locate').textContent = 'LOCATION UNAVAILABLE'; }, { timeout: 10000 });
   });
 
   if (observer !== KRAKOW) setObserver(observer);
 
   // ---------- static panels ----------
   const leaders = objects.filter(o => o.leader === o).length;
-  $('hud-count').textContent = `${leaders.toLocaleString()} (${objects.length.toLocaleString()} element sets)`;
+  $('hud-count').textContent = leaders.toLocaleString();
+  $('tb-count').textContent = leaders.toLocaleString();
+  $('tb-sets').textContent = objects.length.toLocaleString();
   $('hud-data').textContent = `${snap.generated.slice(0, 16).replace('T', ' ')} UTC`;
   renderCensus(objects);
   renderDecay(objects, Date.now(), o => select(o));
@@ -202,15 +241,31 @@ async function main() {
     if (document.hidden) return;
     $('clock-utc').textContent = fmt.utc(simNow());
     refreshObject(false);
+    nextTca();
+    scanStep(false);
   }, 500);
   setInterval(() => { if (!document.hidden) drawConj(); }, 15000);
+  // Timeline beats: every 9 s one top-bar figure is re-read and flashes.
+  const figs = ['tb-count', 'tb-sky', 'tb-kp', 'tb-tca'];
+  let fig = 0;
+  setInterval(() => { if (!document.hidden) flash($(figs[fig++ % figs.length])); }, 9000);
 
   // ---------- sky strip ----------
+  let prevAbove = null;
   const drawSkyNow = () => {
     if (document.hidden) return;
     const now = simNow();
     const above = skyPositions(scene, observer, now);
     $('sky-tag').textContent = `${above.length.toLocaleString()} ABOVE HORIZON`;
+    $('tb-sky').textContent = above.length.toLocaleString();
+    // Rises and sets of the objects worth looking up for (crewed and naked-eye bright ones).
+    const watch = new Map();
+    for (const a of above) if (a.o.flags.has('station') || a.o.flags.has('visual') || a.o === selected) watch.set(a.o, a);
+    if (prevAbove) {
+      for (const [o, a] of watch) if (!prevAbove.has(o)) log.push({ t: now.getTime(), tag: 'RISE', text: `${o.name} az ${a.az.toFixed(0)}°`, cls: o.flags.has('station') ? 'ok' : '' });
+      for (const o of prevAbove.keys()) if (!watch.has(o) && (o.flags.has('station') || o === selected)) log.push({ t: now.getTime(), tag: 'SET', text: o.name });
+    }
+    prevAbove = watch;
     drawSky($('sky'), { above, selected, pass: passes[0], observer, pal, now });
   };
   setTimeout(drawSkyNow, 1500); // after the first full propagation sweep
@@ -284,7 +339,7 @@ async function main() {
     for (let tries = 0; tries < beats.length; tries++) {
       beat = (beat + 1) % beats.length;
       const c = beats[beat]();
-      if (c) { caption(beat + 1, ...c); lastCut = now; break; }
+      if (c) { caption(beat + 1, ...c); lastCut = now; log.push({ t: simNow().getTime(), tag: 'CUT', text: `${c[0]} · ${c[1]}`, cls: 'cool' }); break; }
     }
   }, 1000);
 }

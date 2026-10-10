@@ -97,6 +97,12 @@ export function renderWeather(snap, pal) {
   const tag = $('wx-tag');
   tag.textContent = g ? `STORM · G${g} (24 h peak)` : 'QUIET';
   tag.className = `tag ${g >= 3 ? 'hot' : g ? 'warn' : ''}`;
+  if (last) {
+    const lg = gScale(last.kp);
+    $('tb-kp').textContent = last.kp.toFixed(1);
+    $('tb-kp').className = `big${lg >= 3 ? ' alarm' : lg ? ' warn' : ''}`;
+    $('tb-kp-sub').textContent = lg ? `PLANETARY Kp · STORM G${lg}` : 'PLANETARY Kp · QUIET';
+  }
   const rows = [
     ['KP', last ? `${last.kp.toFixed(2)}` : '--'],
     ['NOAA G/S/R', `G${scales.G} S${scales.S} R${scales.R}`],
@@ -106,10 +112,8 @@ export function renderWeather(snap, pal) {
     ['F10.7', `${wind.f107.value} sfu`],
   ];
   $('wx-grid').innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('');
-  $('wx-grid').style.gridTemplateColumns = 'auto 1fr';
   $('wx-note').textContent =
-    `Kp to ${last ? fmt.utcShort(new Date(last.t)) : '--'} UTC, solar wind ${fmt.utcShort(new Date(wind.speed.t))} UTC. ` +
-    'Storms heat the upper atmosphere, raising drag and pulling low orbits down faster. NOAA scales lag the 3-hour Kp.';
+    `Wind ${fmt.utcShort(new Date(wind.speed.t))} UTC. Storms heat the upper atmosphere and pull low orbits down faster.`;
   drawKp($('kp'), kp, pal);
 }
 
@@ -122,20 +126,19 @@ function drawKp(canvas, kp, pal) {
   const w = r.width, h = r.height, top = 6, base = h - 16, left = 16;
   const y = v => base - (v / 9) * (base - top);
   ctx.font = '9px "Space Mono", monospace';
-  ctx.fillStyle = `rgba(${pal.text}, .38)`;
   for (const v of [0, 3, 5, 7, 9]) {
+    ctx.fillStyle = `rgb(${pal.dim})`;
     ctx.fillText(String(v), 0, y(v) + 3);
-    ctx.fillStyle = `rgba(${pal.text}, ${v === 5 ? .22 : .08})`; ctx.fillRect(left, Math.round(y(v)), w - left, 1);
-    ctx.fillStyle = `rgba(${pal.text}, .38)`;
+    ctx.fillStyle = v === 5 ? `rgba(${pal.hot}, .35)` : `rgba(${pal.text}, .08)`; ctx.fillRect(left, Math.round(y(v)), w - left, 1);
   }
   const n = kp.length, bw = (w - left) / Math.max(1, n);
   kp.forEach((row, i) => {
     const g = gScale(row.kp);
-    ctx.fillStyle = `rgba(${g >= 3 ? pal.hot : g ? pal.warn : pal.pay}, ${g ? 0.9 : 0.55})`;
+    ctx.fillStyle = `rgba(${g >= 3 ? pal.hot : g ? pal.k3 : pal.k1}, ${g ? 0.95 : 0.7})`;
     ctx.fillRect(left + i * bw + 0.5, y(row.kp), Math.max(1, bw - 1.5), base - y(row.kp));
     const d = new Date(row.t);
     if (d.getUTCHours() === 0) {
-      ctx.fillStyle = `rgba(${pal.text}, .38)`;
+      ctx.fillStyle = `rgb(${pal.dim})`;
       ctx.fillText(`${pad(d.getUTCDate())}/${pad(d.getUTCMonth() + 1)}`, left + i * bw, h - 3);
     }
   });
@@ -146,13 +149,6 @@ export function renderCensus(objects) {
   const reg = leaders.reduce((m, o) => m.set(o.regime, (m.get(o.regime) ?? 0) + 1), new Map());
   $('hud-census').innerHTML = ['LEO', 'MEO', 'GEO', 'HEO']
     .map(k => `<span class="k">${k}</span> <b>${(reg.get(k) ?? 0).toLocaleString()}</b>`).join(' &nbsp;');
-}
-
-export function renderLog(entries) {
-  $('log').innerHTML = entries
-    .sort((a, b) => b.t - a.t)
-    .map(e => `<li><time datetime="${new Date(e.t).toISOString()}">${fmt.utcShort(new Date(e.t))}</time><span class="${e.cls ?? ''}">${esc(e.text)}</span></li>`)
-    .join('');
 }
 
 function renderRadio(list) {
