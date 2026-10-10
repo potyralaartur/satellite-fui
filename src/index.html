@@ -70,6 +70,13 @@
         <div id="obj-name" class="obj-name">Click a satellite</div>
         <dl id="obj-grid" class="grid mono"></dl>
         <div id="obj-docked" class="docked"></div>
+        <div id="obj-radio" class="radio" hidden>
+          <h3>Radio <span class="tag">SatNOGS</span></h3>
+          <table class="tbl mono">
+            <thead><tr><th>Downlink</th><th>Mode</th><th>Use</th></tr></thead>
+            <tbody id="radio"></tbody>
+          </table>
+        </div>
       </section>
 
       <section class="panel" id="p-passes" aria-labelledby="h-passes">
@@ -89,6 +96,15 @@
           <tbody id="conj"></tbody>
         </table>
         <p class="note" id="conj-note"></p>
+      </section>
+
+      <section class="panel" id="p-decay" aria-labelledby="h-decay" hidden>
+        <h2 id="h-decay"><span>Decay watch</span><span class="tag">LOWEST PERIGEE</span></h2>
+        <table class="tbl mono">
+          <thead><tr><th>Object</th><th>Perigee</th><th>Elem age</th></tr></thead>
+          <tbody id="decay"></tbody>
+        </table>
+        <p class="note">Objects CelesTrak flags for possible near-term reentry. Low perigee and storms both speed up decay.</p>
       </section>
     </aside>
 
@@ -115,6 +131,7 @@
   <footer class="credits">
     Orbital data and SOCRATES: <a href="https://celestrak.org">CelesTrak</a> (18 SDS / Space-Track) ·
     Space weather: <a href="https://www.swpc.noaa.gov">NOAA SWPC</a> ·
+    Radio: <a href="https://db.satnogs.org">SatNOGS DB</a>, Libre Space Foundation (CC BY-SA 4.0) ·
     SGP4: <a href="https://github.com/shashwatak/satellite-js">satellite.js</a> (MIT) ·
     Coastlines: <a href="https://www.naturalearthdata.com">Natural Earth</a> ·
     Positions are good to a few km and degrade with element age. Not for operations.

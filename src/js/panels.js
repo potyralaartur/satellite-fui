@@ -22,7 +22,8 @@ export const fmt = {
 const TYPE_NAME = { PAY: 'PAYLOAD', 'R/B': 'ROCKET BODY', DEB: 'DEBRIS', UNK: 'UNKNOWN' };
 const OPS = { '+': 'operational', '-': 'non-operational', P: 'partially operational', B: 'backup', S: 'spare', X: 'extended mission', D: 'decayed', '?': 'unknown' };
 
-export function renderObject(o, st) {
+export function renderObject(o, st, radio = []) {
+  renderRadio(radio);
   if (!o) {
     $('obj-name').textContent = 'Click a satellite';
     $('obj-tag').textContent = '';
@@ -159,4 +160,28 @@ export function renderLog(entries) {
     .sort((a, b) => b.t - a.t)
     .map(e => `<li><time datetime="${new Date(e.t).toISOString()}">${fmt.utcShort(new Date(e.t))}</time><span class="${e.cls ?? ''}">${esc(e.text)}</span></li>`)
     .join('');
+}
+
+function renderRadio(list) {
+  $('obj-radio').hidden = !list.length;
+  $('radio').innerHTML = list.map(t => `<tr${t.alive ? '' : ' class="dim"'}>
+    <td>${t.dl ? `${t.dl.toFixed(3)} MHz` : '--'}</td>
+    <td>${esc(t.mode)}${t.baud ? ` ${t.baud}` : ''}</td>
+    <td class="pair">${esc(t.d)}${t.alive ? '' : ' <small>inactive</small>'}</td></tr>`).join('');
+}
+
+export function renderDecay(objects, now, onPick) {
+  const list = objects.filter(o => o.flags.has('decaying') && o.leader === o)
+    .sort((a, b) => a.perigee - b.perigee).slice(0, 8);
+  $('p-decay').hidden = !list.length;
+  const body = $('decay');
+  body.innerHTML = list.map((o, i) => `<tr class="click" data-i="${i}" tabindex="0">
+    <td class="pair">${esc(o.name)}<small>${o.id}</small></td>
+    <td class="${o.perigee < 200 ? 'hot' : ''}">${o.perigee.toFixed(0)} km</td>
+    <td>${((now - o.epoch) / 864e5).toFixed(1)} d</td></tr>`).join('');
+  body.querySelectorAll('tr').forEach(tr => {
+    const go = () => onPick(list[Number(tr.dataset.i)]);
+    tr.addEventListener('click', go);
+    tr.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
+  });
 }

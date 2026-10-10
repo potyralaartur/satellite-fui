@@ -1,7 +1,7 @@
 import { loadSnapshot, search } from './data.js';
 import { Scene, readPalette } from './scene.js';
 import { stateOf, predictPasses, observerFrom } from './orbit.js';
-import { renderObject, renderPasses, renderConjunctions, renderWeather, renderCensus, renderLog, fmt } from './panels.js';
+import { renderObject, renderPasses, renderConjunctions, renderWeather, renderCensus, renderLog, renderDecay, fmt } from './panels.js';
 
 const $ = id => document.getElementById(id);
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -29,7 +29,7 @@ let observer = loadObserver();
 
 async function main() {
   const world = await loadSnapshot();
-  const { snap, objects, byId } = world;
+  const { snap, objects, byId, radio } = world;
   const pal = readPalette();
   let selected = null, passes = [], passesFor = null, conjIdx = -1;
 
@@ -50,7 +50,7 @@ async function main() {
 
   function refreshObject(force) {
     const now = simNow();
-    renderObject(selected, selected && stateOf(selected, now, observer));
+    renderObject(selected, selected && stateOf(selected, now, observer), (selected && radio[selected.id]) || []);
     const stale = passes.length && now.getTime() > passes[0].stop;
     if (force || passesFor !== selected || stale) {
       passes = selected ? predictPasses(selected, observer, now) : [];
@@ -155,6 +155,7 @@ async function main() {
   $('hud-count').textContent = `${leaders.toLocaleString()} (${objects.length.toLocaleString()} element sets)`;
   $('hud-data').textContent = `${snap.generated.slice(0, 16).replace('T', ' ')} UTC`;
   renderCensus(objects);
+  renderDecay(objects, Date.now(), o => select(o));
   renderWeather(snap, pal);
   drawConj();
   window.addEventListener('resize', () => renderWeather(snap, pal));

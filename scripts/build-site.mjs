@@ -108,7 +108,11 @@ function packObjects(byId, satcat) {
 
 // ---------- conjunctions ----------
 
+// Full SOCRATES CSV (fetched with --socrates-full) when it parses, else the seed top 10.
+// Columns are found by name so a reordered header still works; anything unrecognised falls back.
 async function loadConjunctions() {
+  const full = await loadSocratesFull();
+  if (full) return full;
   const rows = parseCsv(await readText(join(SEED, 'socrates-top10-maxprob.csv')));
   const [h, ...body] = rows;
   const all = body.map(r => Object.fromEntries(h.map((k, i) => [k, r[i]])));
@@ -121,8 +125,62 @@ async function loadConjunctions() {
     speedKms: Number(c.rel_speed_km_s),
     maxProb: Number(c.max_probability),
   }));
-  log('conjunctions', real.length, `of ${all.length} (docked pairs dropped)`);
+  log('conjunctions', real.length, `of ${all.length} from seed (docked pairs dropped)`);
   return { source: 'CelesTrak SOCRATES Plus, top 10 by max probability', retrieved: '2026-10-10T21:20:00Z', rows: real };
+}
+
+async function loadSocratesFull() {
+  const path = join(DATA, 'socrates-min-range.csv');
+  if (!(await exists(path))) return null;
+  const [header, ...rows] = parseCsv(await readText(path));
+  const find = (...res) => header.findIndex(h => res.every(re => re.test(h.toUpperCase())));
+  const c = {
+    id1: find(/NORAD|CAT/, /1/), name1: find(/NAME/, /1/), dse1: find(/DSE|EPOCH/, /1/),
+    id2: find(/NORAD|CAT/, /2/), name2: find(/NAME/, /2/), dse2: find(/DSE|EPOCH/, /2/),
+    tca: header.findIndex(h => /TCA/i.test(h) && !/RANGE|SPEED|VEL/i.test(h)), range: find(/RANGE/), speed: find(/SPEED|VEL/), prob: find(/PROB/),
+  };
+  const missing = Object.entries(c).filter(([k, v]) => v < 0 && !k.startsWith('dse')).map(([k]) => k);
+  if (missing.length) {
+    console.warn(`build  SOCRATES CSV: no column for ${missing.join(', ')} in [${header.join(', ')}]; using seed`);
+    return null;
+  }
+  const now = Date.now();
+  const parsed = rows.map(r => ({
+    a: { id: Number(r[c.id1]), name: r[c.name1]?.trim(), age: c.dse1 >= 0 ? Number(r[c.dse1]) : NaN },
+    b: { id: Number(r[c.id2]), name: r[c.name2]?.trim(), age: c.dse2 >= 0 ? Number(r[c.dse2]) : NaN },
+    tca: isoZ(r[c.tca]?.trim()),
+    rangeKm: Number(r[c.range]), speedKms: Number(r[c.speed]), maxProb: Number(r[c.prob]),
+  })).filter(x => Number.isFinite(x.rangeKm) && Number.isFinite(x.maxProb) && x.speedKms > 0.05 && Date.parse(x.tca) > now);
+  if (!parsed.length) { console.warn('build  SOCRATES CSV parsed to 0 future rows; using seed'); return null; }
+  parsed.sort((x, y) => y.maxProb - x.maxProb || x.rangeKm - y.rangeKm);
+  const man = await readJson(join(DATA, 'manifest.json'));
+  log('conjunctions', `top 10 of ${parsed.length} from SOCRATES CSV`);
+  return {
+    source: 'CelesTrak SOCRATES Plus, top 10 by max probability',
+    retrieved: man?.files?.['socrates-min-range.csv']?.retrieved_utc ?? new Date().toISOString(),
+    rows: parsed.slice(0, 10),
+  };
+}
+
+// ---------- radio ----------
+
+// SatNOGS transmitters for objects in the snapshot, a few per object.
+async function loadRadio(ids) {
+  const json = await readJson(join(DATA, 'satnogs-transmitters.json'));
+  if (!Array.isArray(json)) return {};
+  const out = {};
+  const mhz = v => (Number.isFinite(Number(v)) && v ? Math.round(Number(v) / 1e3) / 1e3 : null);
+  for (const t of json) {
+    const id = Number(t.norad_cat_id);
+    if (!ids.has(id) || t.status === 'invalid') continue;
+    (out[id] ??= []).push({
+      d: String(t.description ?? '').slice(0, 40), dl: mhz(t.downlink_low), ul: mhz(t.uplink_low),
+      mode: t.mode ?? '', baud: Number(t.baud) || null, alive: t.alive !== false && t.status !== 'inactive',
+    });
+  }
+  for (const k of Object.keys(out)) out[k] = out[k].sort((a, b) => b.alive - a.alive).slice(0, 6);
+  log('radio', Object.keys(out).length, 'objects with SatNOGS transmitters');
+  return out;
 }
 
 // ---------- space weather ----------
@@ -235,6 +293,7 @@ async function main() {
     wind: await loadSolarWind(),
     scales: await loadScales(),
     alerts: await loadAlerts(),
+    radio: await loadRadio(new Set(orbits.keys())),
     sources: await sourcesUsed(),
   };
   const json = JSON.stringify(snapshot);

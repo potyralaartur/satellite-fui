@@ -21,12 +21,11 @@ npm run build      # → dist/ (uses data/ if fetched, else the seed snapshot)
 npm run serve      # http://localhost:8080
 ```
 
-`.github/workflows/pages.yml` fetches fresh CelesTrak and NOAA data every 6 hours, rebuilds and
-deploys to GitHub Pages. If a download fails, the build falls back to the seed snapshot.
+`.github/workflows/pages.yml` fetches fresh CelesTrak (GP, SATCAT, full SOCRATES), NOAA and
+SatNOGS data every 6 hours, rebuilds and deploys to GitHub Pages. Downloads are cached between
+runs so each file is only fetched again once it is stale. If a download fails or a file doesn't
+parse, the build falls back to the seed snapshot for that dataset.
 To enable it: repository Settings → Pages → Source: **GitHub Actions**.
-
-Close approaches still come from the seed snapshot (SOCRATES top 10 of 2026-10-10); refreshing
-them needs the 22 MB SOCRATES CSV, which is a follow-up.
 
 ## Data tools
 

@@ -42,7 +42,7 @@ export async function loadSnapshot() {
     });
   }
   groupDocked(objects);
-  return { snap, objects, coast, byId: new Map(objects.map(o => [o.id, o])) };
+  return { snap, objects, coast, byId: new Map(objects.map(o => [o.id, o])), radio: snap.radio ?? {} };
 }
 
 function regimeOf(apogee, perigee, ecc, periodMin) {
