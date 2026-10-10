@@ -1,0 +1,199 @@
+import { loadSnapshot, search } from './data.js';
+import { Scene, readPalette } from './scene.js';
+import { stateOf, predictPasses, observerFrom } from './orbit.js';
+import { renderObject, renderPasses, renderConjunctions, renderWeather, renderCensus, renderLog, renderDecay, fmt } from './panels.js';
+
+const $ = id => document.getElementById(id);
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const FPS = 30;
+
+// ---------- clock (real time, or warped) ----------
+const clock = { real0: Date.now(), sim0: Date.now(), warp: 1 };
+const simNow = () => new Date(clock.sim0 + (Date.now() - clock.real0) * clock.warp);
+function setWarp(w) {
+  const now = w === 1 ? new Date() : simNow(); // LIVE snaps back to the real time
+  clock.real0 = Date.now(); clock.sim0 = now.getTime(); clock.warp = w;
+  document.querySelectorAll('[data-warp]').forEach(b => b.setAttribute('aria-pressed', String(Number(b.dataset.warp) === w)));
+}
+
+// ---------- observer ----------
+const KRAKOW = observerFrom(50.06, 19.94, 0.22, 'Kraków');
+function loadObserver() {
+  try {
+    const s = JSON.parse(localStorage.getItem('observer') || 'null');
+    if (s && Number.isFinite(s.lat) && Number.isFinite(s.lon)) return observerFrom(s.lat, s.lon, 0.2, s.label || 'You');
+  } catch { /* storage unavailable */ }
+  return KRAKOW;
+}
+let observer = loadObserver();
+
+async function main() {
+  const world = await loadSnapshot();
+  const { snap, objects, byId, radio } = world;
+  const pal = readPalette();
+  let selected = null, passes = [], passesFor = null, conjIdx = -1;
+
+  const scene = new Scene($('hero'), world, {
+    getObserver: () => observer,
+    onSelect: o => select(o),
+    reducedMotion,
+  });
+
+  // ---------- selection ----------
+  function select(o, { fromHash = false } = {}) {
+    selected = o?.leader ?? null;
+    scene.select(selected);
+    passesFor = null;
+    if (!fromHash) history.replaceState(null, '', selected ? `#${selected.id}` : location.pathname);
+    refreshObject(true);
+  }
+
+  function refreshObject(force) {
+    const now = simNow();
+    renderObject(selected, selected && stateOf(selected, now, observer), (selected && radio[selected.id]) || []);
+    const stale = passes.length && now.getTime() > passes[0].stop;
+    if (force || passesFor !== selected || stale) {
+      passes = selected ? predictPasses(selected, observer, now) : [];
+      passesFor = selected;
+      buildLog();
+    }
+    renderPasses(passes, now.getTime(), selected);
+  }
+
+  // ---------- conjunctions ----------
+  function pickConjunction(i) {
+    const c = snap.conjunctions.rows[i];
+    if (conjIdx === i) { conjIdx = -1; scene.setConjunction(null); drawConj(); return; }
+    conjIdx = i;
+    const a = byId.get(c.a.id), b = byId.get(c.b.id);
+    if (a && b) {
+      const tca = new Date(c.tca);
+      scene.setConjunction({ a, b, tca: c.tca, label: `${fmt.utcShort(tca)} UTC · ${fmt.km(c.rangeKm)}` });
+      select(a);
+    } else {
+      scene.setConjunction(null);
+      if (a || b) select(a || b);
+    }
+    drawConj();
+    if (!(a && b)) $('conj-note').textContent =
+      `Orbits for ${[!a && c.a.name, !b && c.b.name].filter(Boolean).join(' and ')} aren't in this snapshot, so the pair can't be drawn.`;
+  }
+  const drawConj = () => renderConjunctions(snap.conjunctions, simNow().getTime(), conjIdx, pickConjunction);
+
+  // ---------- log ----------
+  function buildLog() {
+    const out = [];
+    for (const a of snap.alerts) out.push({ t: Date.parse(a.t), text: `NOAA ${a.title}`, cls: 'warn' });
+    let prevG = 0;
+    for (const r of snap.kp) {
+      const g = Math.max(0, Math.round(r.kp) - 4);
+      if (g > prevG) out.push({ t: Date.parse(r.t), text: `Kp ${r.kp.toFixed(2)}: geomagnetic storm G${g}`, cls: g >= 3 ? 'hot' : 'warn' });
+      prevG = g;
+    }
+    for (const c of snap.conjunctions.rows.slice(0, 3)) {
+      out.push({ t: Date.parse(c.tca), text: `TCA ${c.a.name} / ${c.b.name}, ${fmt.km(c.rangeKm)} at ${c.speedKms.toFixed(1)} km/s`, cls: 'hot' });
+    }
+    const newest = objects.reduce((m, o) => (o.intl > (m?.intl ?? '') ? o : m), null);
+    if (newest) out.push({ t: Date.parse(snap.generated), text: `Newest catalogued launch: ${newest.intl} ${newest.name}` });
+    const freshest = objects.reduce((m, o) => Math.max(m, o.epoch), 0);
+    out.push({ t: freshest, text: `Newest element set epoch (${objects.length.toLocaleString()} sets loaded)`, cls: 'ok' });
+    if (selected && passes[0]) {
+      const p = passes[0];
+      out.push({ t: p.start, text: `${selected.name} rises over ${observer.label}, max ${p.maxEl.toFixed(0)}°${p.visible ? ', visible' : ''}`, cls: 'ok' });
+    }
+    renderLog(out);
+  }
+
+  // ---------- search ----------
+  const q = $('q'), results = $('q-results');
+  let hits = [], cursor = 0;
+  const showResults = () => {
+    results.hidden = !hits.length;
+    results.innerHTML = hits.map((o, i) =>
+      `<li role="option" data-i="${i}" aria-selected="${i === cursor}"><span>${o.name.replace(/</g, '&lt;')}</span><span class="id">${o.id}</span></li>`).join('');
+  };
+  const choose = o => { if (o) select(o); q.value = ''; hits = []; showResults(); q.blur(); };
+  q.addEventListener('input', () => { hits = search(objects, q.value); cursor = 0; showResults(); });
+  q.addEventListener('keydown', e => {
+    if (e.key === 'ArrowDown') { cursor = Math.min(hits.length - 1, cursor + 1); showResults(); e.preventDefault(); }
+    if (e.key === 'ArrowUp') { cursor = Math.max(0, cursor - 1); showResults(); e.preventDefault(); }
+    if (e.key === 'Enter') choose(hits[cursor]);
+    if (e.key === 'Escape') { hits = []; showResults(); }
+  });
+  results.addEventListener('pointerdown', e => { const li = e.target.closest('li'); if (li) { e.preventDefault(); choose(hits[Number(li.dataset.i)]); } });
+  q.addEventListener('blur', () => setTimeout(() => { hits = []; showResults(); }, 150));
+
+  // ---------- controls ----------
+  document.querySelectorAll('[data-warp]').forEach(b => b.addEventListener('click', () => { setWarp(Number(b.dataset.warp)); refreshObject(true); drawConj(); }));
+  document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => scene.zoomTo(Number(b.dataset.view))));
+  const setObserver = o => {
+    observer = o;
+    const mine = o !== KRAKOW;
+    $('obs-name').textContent = mine ? `you (${o.latDeg.toFixed(1)}°, ${o.lonDeg.toFixed(1)}°)` : 'Kraków';
+    $('locate').textContent = mine ? 'Reset to Kraków' : 'Use my location';
+    refreshObject(true);
+  };
+  $('locate').addEventListener('click', () => {
+    if (observer !== KRAKOW) {
+      try { localStorage.removeItem('observer'); } catch { /* ignore */ }
+      setObserver(KRAKOW);
+      return;
+    }
+    if (!navigator.geolocation) { $('locate').textContent = 'Location unavailable'; return; }
+    $('locate').textContent = 'Locating…';
+    navigator.geolocation.getCurrentPosition(pos => {
+      const lat = Math.round(pos.coords.latitude * 100) / 100, lon = Math.round(pos.coords.longitude * 100) / 100;
+      try { localStorage.setItem('observer', JSON.stringify({ lat, lon, label: 'You' })); } catch { /* ignore */ }
+      setObserver(observerFrom(lat, lon, 0.2, 'You'));
+    }, () => { $('locate').textContent = 'Location unavailable'; }, { timeout: 10000 });
+  });
+
+  if (observer !== KRAKOW) setObserver(observer);
+
+  // ---------- static panels ----------
+  const leaders = objects.filter(o => o.leader === o).length;
+  $('hud-count').textContent = `${leaders.toLocaleString()} (${objects.length.toLocaleString()} element sets)`;
+  $('hud-data').textContent = `${snap.generated.slice(0, 16).replace('T', ' ')} UTC`;
+  renderCensus(objects);
+  renderDecay(objects, Date.now(), o => select(o));
+  renderWeather(snap, pal);
+  drawConj();
+  window.addEventListener('resize', () => renderWeather(snap, pal));
+
+  const fromHash = () => {
+    const id = Number(location.hash.slice(1));
+    const o = byId.get(id);
+    if (o) select(o, { fromHash: true });
+  };
+  window.addEventListener('hashchange', fromHash);
+  if (byId.has(Number(location.hash.slice(1)))) fromHash();
+  else select(byId.get(25544) ?? objects[0]);
+
+  // ---------- loops ----------
+  let last = performance.now(), running = true, first = true;
+  const loop = now => {
+    if (!running) return;
+    requestAnimationFrame(loop);
+    const dt = now - last;
+    if (dt < 1000 / FPS - 2) return;
+    last = now;
+    scene.frame(simNow(), clock.warp, Math.min(dt, 100));
+    if (first) { $('loading').classList.add('done'); first = false; }
+  };
+  requestAnimationFrame(loop);
+  document.addEventListener('visibilitychange', () => {
+    running = !document.hidden;
+    if (running) { last = performance.now(); requestAnimationFrame(loop); }
+  });
+  setInterval(() => {
+    if (document.hidden) return;
+    $('clock-utc').textContent = fmt.utc(simNow());
+    refreshObject(false);
+  }, 500);
+  setInterval(() => { if (!document.hidden) drawConj(); }, 15000);
+}
+
+main().catch(err => {
+  console.error(err);
+  $('loading').textContent = 'COULD NOT LOAD ORBITAL DATA';
+});

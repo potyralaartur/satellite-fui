@@ -1,0 +1,63 @@
+name: Build and deploy
+
+# Rebuilds the site with fresh orbital elements and space weather, then publishes it to
+# GitHub Pages. CelesTrak refreshes its GP data every 2 hours and asks clients to download
+# each group at most once per update; every 6 hours keeps well inside that.
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # Keep downloads between runs so fetch-data's max-age rules apply: GCAT, SATCAT, SatNOGS
+      # and the 22 MB SOCRATES file are only re-downloaded once they are actually stale.
+      - name: Restore downloaded data
+        uses: actions/cache@v4
+        with:
+          path: |
+            data/*.csv
+            data/*.tsv
+            data/*.json
+          key: data-${{ github.run_id }}
+          restore-keys: data-
+      # A failed download is not fatal: the build falls back to the committed seed snapshot.
+      - name: Fetch orbital elements
+        run: node scripts/fetch-data.mjs --only=celestrak --socrates-full || echo "::warning::CelesTrak fetch incomplete, using what was downloaded plus the seed snapshot"
+      - name: Fetch space weather
+        run: node scripts/fetch-data.mjs --only=noaa || echo "::warning::NOAA fetch incomplete, using the seed snapshot"
+      - name: Fetch radio transmitters
+        run: node scripts/fetch-data.mjs --only=satnogs || echo "::warning::SatNOGS fetch incomplete, radio panel may be empty"
+      - run: npm run build
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
