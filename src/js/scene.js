@@ -17,7 +17,7 @@ const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a
 export function readPalette() {
   const cs = getComputedStyle(document.documentElement);
   const rgb = name => cs.getPropertyValue(`--p-${name}-rgb`).trim() || '255,255,255';
-  return Object.fromEntries(['text', 'pay', 'rb', 'deb', 'station', 'hot', 'warn', 'land', 'night', 'sun', 'observer']
+  return Object.fromEntries(['text', 'pay', 'rb', 'deb', 'station', 'deep', 'hot', 'warn', 'land', 'night', 'sun', 'observer']
     .map(k => [k, rgb(k)]));
 }
 
@@ -29,7 +29,7 @@ export class Scene {
     this.opts = opts; // { getTime, getObserver, onSelect, reducedMotion }
     this.pal = readPalette();
     this.leaders = world.objects.filter(o => o.leader === o);
-    this.cam = { yaw: -60 * DEG, pitch: 22 * DEG, view: 30000, targetView: 30000 };
+    this.cam = { yaw: -60 * DEG, pitch: 22 * DEG, view: 27000, targetView: 27000 };
     this.selected = null;
     this.conj = null; // { a, b, tca, label }
     this.tracks = new Map(); // id -> { t0, pts: Float64Array }
@@ -111,10 +111,21 @@ export class Scene {
     if (immediate) this.cam.view = this.cam.targetView;
   }
 
-  select(o) {
+  select(o, { zoom = true } = {}) {
     this.selected = o?.leader ?? null;
-    if (this.selected) this.zoomTo(Math.max(9500, (this.selected.apogee + EARTH_R) * 1.45));
+    if (this.selected && zoom) this.zoomTo(Math.max(9500, (this.selected.apogee + EARTH_R) * 1.45));
   }
+
+  // A cut in the idle tour: ease the camera to a new angle and distance.
+  cutTo({ yaw, pitch, view }) {
+    this.cutAt = performance.now();
+    if (yaw !== undefined) this.cam.targetYaw = yaw;
+    if (pitch !== undefined) this.cam.targetPitch = pitch;
+    if (view !== undefined) this.zoomTo(view);
+  }
+
+  // Yaw that puts an ECI position facing the camera.
+  yawFacing(p) { return Math.atan2(p[1], p[0]); }
 
   setConjunction(c) {
     this.conj = c;
@@ -226,7 +237,14 @@ export class Scene {
   frame(date, warp, dtMs) {
     const ctx = this.ctx, pal = this.pal;
     const idle = performance.now() - this.lastInput > 4000;
-    if (idle && !this.opts.reducedMotion) this.cam.yaw += dtMs * 0.000035;
+    const k = Math.min(1, dtMs / 700);
+    if (this.lastInput > (this.cutAt ?? 0)) this.cam.targetYaw = this.cam.targetPitch = undefined; // user took over
+    if (this.cam.targetYaw !== undefined) {
+      const d = Math.atan2(Math.sin(this.cam.targetYaw - this.cam.yaw), Math.cos(this.cam.targetYaw - this.cam.yaw));
+      this.cam.yaw += d * k;
+      if (Math.abs(d) < 0.002) this.cam.targetYaw = undefined;
+    } else if (idle && !this.opts.reducedMotion) this.cam.yaw += dtMs * 0.000035;
+    if (this.cam.targetPitch !== undefined) this.cam.pitch += (this.cam.targetPitch - this.cam.pitch) * k;
     this.cam.view += (this.cam.targetView - this.cam.view) * Math.min(1, dtMs / 350);
 
     this.propagateSlice(date, warp);
@@ -350,30 +368,36 @@ export class Scene {
       add(this.conj.b, 'conjB', tca, `tca:${this.conj.b.id}`);
     }
 
+    // Colour carries meaning, as in DECLINATION: northbound legs of an orbit are drawn ice-white,
+    // southbound legs deep blue, so the eye reads each ring's direction of travel.
     const buckets = {};
-    const bucket = (style, back) => (buckets[style + back] ??= { style, back, path: new Path2D() });
+    const bucket = (style, back, leg) => (buckets[style + back + leg] ??= { style, back, leg, path: new Path2D() });
     for (const { pts, style } of jobs) {
-      let prev = null, prevBack = null;
+      let prev = null, prevBack = null, prevLeg = null, prevZ = NaN;
       for (let k = 0; k < TRACK_SAMPLES; k++) {
         const p = [pts[k * 3], pts[k * 3 + 1], pts[k * 3 + 2]];
         if (!Number.isFinite(p[0])) { prev = null; continue; }
         const s = this.project(cam, p);
         if (!s) { prev = null; continue; }
         const back = this.occluded(cam, p);
-        if (prev && prevBack === back) bucket(style, back).path.lineTo(s[0], s[1]);
-        else { const b = bucket(style, back).path; if (prev) b.moveTo(prev[0], prev[1]); else b.moveTo(s[0], s[1]); b.lineTo(s[0], s[1]); }
-        prev = s; prevBack = back;
+        const leg = style.startsWith('conj') ? 'n' : Number.isFinite(prevZ) && p[2] < prevZ ? 's' : 'n';
+        if (prev && prevBack === back && prevLeg === leg) bucket(style, back, leg).path.lineTo(s[0], s[1]);
+        else { const b = bucket(style, back, leg).path; b.moveTo(...(prev ?? s)); b.lineTo(s[0], s[1]); }
+        prev = s; prevBack = back; prevLeg = leg; prevZ = p[2];
       }
     }
     const ink = { faint: pal.pay, station: pal.station, sel: pal.text, conjA: pal.hot, conjB: pal.warn };
-    const alpha = { faint: 0.07, station: 0.28, sel: 0.7, conjA: 0.8, conjB: 0.8 };
-    for (const { style, back, path } of Object.values(buckets)) {
-      const a = alpha[style] * (back ? 0.25 : 1);
+    const alpha = { faint: 0.07, station: 0.28, sel: 0.75, conjA: 0.8, conjB: 0.8 };
+    // The strongest lines breathe on a slow sine so the frame never sits perfectly still.
+    const breathe = this.opts.reducedMotion ? 1 : 0.82 + 0.18 * Math.sin(performance.now() / 6500 * Math.PI * 2);
+    for (const { style, back, leg, path } of Object.values(buckets)) {
+      const a = alpha[style] * (back ? 0.25 : 1) * (style === 'faint' ? 1 : breathe) * (leg === 's' && style !== 'faint' ? 0.85 : 1);
+      const colour = leg === 's' ? pal.deep : ink[style];
       if (style !== 'faint') { // wide tinted underlay
-        ctx.lineWidth = 4; ctx.strokeStyle = `rgba(${ink[style]}, ${a * 0.18})`; ctx.stroke(path);
+        ctx.lineWidth = 4; ctx.strokeStyle = `rgba(${colour}, ${a * 0.18})`; ctx.stroke(path);
       }
       ctx.lineWidth = style === 'faint' ? 0.7 : 1.1;
-      ctx.strokeStyle = `rgba(${ink[style]}, ${a})`; ctx.stroke(path);
+      ctx.strokeStyle = `rgba(${colour}, ${a})`; ctx.stroke(path);
     }
 
     // Conjunction marker at TCA.

@@ -7,6 +7,7 @@
   --p-rb-rgb: 255, 176, 92;
   --p-deb-rgb: 186, 128, 255;
   --p-station-rgb: 240, 248, 255;
+  --p-deep-rgb: 70, 112, 236;
   --p-hot-rgb: 255, 92, 74;
   --p-warn-rgb: 255, 206, 84;
   --p-ok-rgb: 110, 230, 170;
@@ -150,9 +151,6 @@ button { font: inherit; color: inherit; }
 .tbl .hot { color: var(--hot); }
 .tbl .star { color: var(--warn); }
 .tbl .dim { color: var(--ink-3); }
-.census td:first-child { color: var(--ink-2); }
-.census td.bar { width: 45%; }
-.census .b { height: 6px; background: rgba(var(--p-pay-rgb), .55); }
 
 .wx { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 16px; align-items: start; }
 .kp { position: relative; height: clamp(80px, 14vh, 120px); }
@@ -170,6 +168,26 @@ button { font: inherit; color: inherit; }
 .credits a { color: var(--ink-2); }
 
 @media (prefers-reduced-motion: reduce) { .loading { transition: none; } }
+
+/* ---------- census line, sky strip, tour captions ---------- */
+.census-line { color: var(--ink-2); }
+.census-line b { font-weight: 400; color: var(--ink); }
+#p-sky { display: flex; flex-direction: column; }
+.sky { position: relative; flex: 1; min-height: 90px; }
+#sky { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.zoom button[aria-pressed="true"] { color: var(--ink); background: rgba(var(--p-pay-rgb), .18); }
+.cut {
+  position: absolute; left: 16px; bottom: 44px; display: grid; gap: 2px; pointer-events: none;
+  opacity: 0; transform: translateY(6px); transition: opacity .8s, transform .8s;
+}
+.cut.on { opacity: 1; transform: none; }
+.cut-n { font-size: 10px; letter-spacing: .3em; color: var(--accent); }
+.cut-t { font: 500 clamp(20px, 2.4vw, 34px)/1.1 var(--sans); letter-spacing: .04em; text-transform: uppercase; }
+.cut-s { font-size: 11px; color: var(--ink-2); letter-spacing: .08em; }
+@media (min-width: 1001px) {
+  .cut { bottom: calc(var(--band-h) + var(--foot-h) + var(--gap) * 2 + 28px); left: calc(var(--gap) + 4px); }
+}
+@media (prefers-reduced-motion: reduce) { .cut { transition: none; } }
 
 /* Wide screens: cinematic HUD. The globe is the whole screen; header, side column, data band
    and credits float over it as translucent glass, and the camera centres the Earth in the

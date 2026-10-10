@@ -143,16 +143,9 @@ function drawKp(canvas, kp, pal) {
 
 export function renderCensus(objects) {
   const leaders = objects.filter(o => o.leader === o);
-  const by = key => leaders.reduce((m, o) => m.set(o[key], (m.get(o[key]) ?? 0) + 1), new Map());
-  const reg = by('regime'), typ = by('type');
-  const rows = [
-    ...['LEO', 'MEO', 'GEO', 'HEO'].map(k => [k, reg.get(k) ?? 0]),
-    ['', null],
-    ...[['PAY', 'Payloads'], ['R/B', 'Rocket bodies'], ['DEB', 'Debris']].map(([k, n]) => [n, typ.get(k) ?? 0]),
-  ];
-  const max = Math.max(1, ...rows.map(r => r[1] ?? 0));
-  $('census').innerHTML = rows.map(([k, v]) => v === null ? '<tr><td colspan="3"></td></tr>' :
-    `<tr><td>${k}</td><td>${v.toLocaleString()}</td><td class="bar"><div class="b" style="width:${(v / max) * 100}%"></div></td></tr>`).join('');
+  const reg = leaders.reduce((m, o) => m.set(o.regime, (m.get(o.regime) ?? 0) + 1), new Map());
+  $('hud-census').innerHTML = ['LEO', 'MEO', 'GEO', 'HEO']
+    .map(k => `<span class="k">${k}</span> <b>${(reg.get(k) ?? 0).toLocaleString()}</b>`).join(' &nbsp;');
 }
 
 export function renderLog(entries) {

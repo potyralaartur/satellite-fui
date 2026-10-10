@@ -1,6 +1,7 @@
 import { loadSnapshot, search } from './data.js';
 import { Scene, readPalette } from './scene.js';
-import { stateOf, predictPasses, observerFrom } from './orbit.js';
+import { stateOf, predictPasses, observerFrom, eciAt } from './orbit.js';
+import { skyPositions, drawSky } from './sky.js';
 import { renderObject, renderPasses, renderConjunctions, renderWeather, renderCensus, renderLog, renderDecay, fmt } from './panels.js';
 
 const $ = id => document.getElementById(id);
@@ -51,9 +52,9 @@ async function main() {
   });
 
   // ---------- selection ----------
-  function select(o, { fromHash = false } = {}) {
+  function select(o, { fromHash = false, zoom = true } = {}) {
     selected = o?.leader ?? null;
-    scene.select(selected);
+    scene.select(selected, { zoom });
     passesFor = null;
     if (!fromHash) history.replaceState(null, '', selected ? `#${selected.id}` : location.pathname);
     refreshObject(true);
@@ -141,6 +142,7 @@ async function main() {
     observer = o;
     const mine = o !== KRAKOW;
     $('obs-name').textContent = mine ? `you (${o.latDeg.toFixed(1)}°, ${o.lonDeg.toFixed(1)}°)` : 'Kraków';
+    $('sky-obs').textContent = mine ? 'you' : 'Kraków';
     $('locate').textContent = mine ? 'Reset to Kraków' : 'Use my location';
     refreshObject(true);
   };
@@ -178,7 +180,7 @@ async function main() {
   };
   window.addEventListener('hashchange', fromHash);
   if (byId.has(Number(location.hash.slice(1)))) fromHash();
-  else select(byId.get(25544) ?? objects[0]);
+  else select(byId.get(25544) ?? objects[0], { zoom: false });
 
   // ---------- loops ----------
   let last = performance.now(), running = true, first = true;
@@ -202,6 +204,89 @@ async function main() {
     refreshObject(false);
   }, 500);
   setInterval(() => { if (!document.hidden) drawConj(); }, 15000);
+
+  // ---------- sky strip ----------
+  const drawSkyNow = () => {
+    if (document.hidden) return;
+    const now = simNow();
+    const above = skyPositions(scene, observer, now);
+    $('sky-tag').textContent = `${above.length.toLocaleString()} ABOVE HORIZON`;
+    drawSky($('sky'), { above, selected, pass: passes[0], observer, pal, now });
+  };
+  setTimeout(drawSkyNow, 1500); // after the first full propagation sweep
+  setInterval(drawSkyNow, 1000);
+
+  // ---------- tour ----------
+  // Edited like a film rather than a dashboard: when nobody is touching the page, the camera
+  // cuts between a few beats the data makes interesting, each with a caption.
+  const leadersList = objects.filter(o => o.leader === o);
+  const count = r => leadersList.filter(o => o.regime === r).length;
+  const beats = [
+    () => {
+      setConjunctionIdx(-1);
+      scene.cutTo({ view: 27000, pitch: 0.38, yaw: scene.cam.yaw + 1.1 });
+      return ['The shell', `${leadersList.length.toLocaleString()} tracked objects · ${count('LEO').toLocaleString()} in low orbit`];
+    },
+    () => {
+      const iss = byId.get(25544);
+      if (!iss) return null;
+      setConjunctionIdx(-1);
+      select(iss);
+      const pv = eciAt(iss, simNow());
+      if (pv) scene.cutTo({ yaw: scene.yawFacing([pv.position.x, pv.position.y]), pitch: 0.45 });
+      const p = passes[0];
+      return ['Crewed · ISS', p ? `next pass over ${observer.label} ${fmt.local(p.start)} · max ${p.maxEl.toFixed(0)}°` : `${iss.docked.length} vehicles docked`];
+    },
+    () => {
+      const i = snap.conjunctions.rows.findIndex(c => byId.has(c.a.id) && byId.has(c.b.id) && Date.parse(c.tca) > simNow());
+      if (i < 0) return null;
+      const c = snap.conjunctions.rows[i];
+      setConjunctionIdx(i);
+      const pv = eciAt(byId.get(c.a.id), new Date(c.tca));
+      if (pv) scene.cutTo({ yaw: scene.yawFacing([pv.position.x, pv.position.y]), pitch: Math.asin(Math.max(-1, Math.min(1, pv.position.z / Math.hypot(pv.position.x, pv.position.y, pv.position.z)))) * 0.8 });
+      return ['Close approach', `${c.a.name} / ${c.b.name} · ${fmt.km(c.rangeKm)} at ${c.speedKms.toFixed(1)} km/s`];
+    },
+    () => {
+      setConjunctionIdx(-1);
+      scene.cutTo({ view: 52000, pitch: 0.12 });
+      return ['Geostationary belt', `${count('GEO').toLocaleString()} objects parked 35,786 km up`];
+    },
+    () => {
+      const d = leadersList.filter(o => o.flags.has('decaying')).sort((a, b) => a.perigee - b.perigee)[0];
+      if (!d) return null;
+      setConjunctionIdx(-1);
+      select(d);
+      return ['Decay watch', `${d.name} · perigee ${d.perigee.toFixed(0)} km`];
+    },
+  ];
+  function setConjunctionIdx(i) {
+    if (i === conjIdx) return;
+    if (i < 0) { conjIdx = -1; scene.setConjunction(null); drawConj(); return; }
+    pickConjunction(i);
+  }
+  let tourOn = !reducedMotion, beat = -1, lastUser = performance.now(), lastCut = 0, captionTimer;
+  const tourBtn = $('tour');
+  tourBtn.setAttribute('aria-pressed', String(tourOn));
+  tourBtn.addEventListener('click', () => { tourOn = !tourOn; tourBtn.setAttribute('aria-pressed', String(tourOn)); });
+  for (const ev of ['pointerdown', 'keydown', 'wheel']) document.addEventListener(ev, () => { lastUser = performance.now(); }, { passive: true });
+  function caption(n, title, sub) {
+    const el = $('cut');
+    el.querySelector('.cut-n').textContent = `CUT ${String(n).padStart(2, '0')} / ${String(beats.length).padStart(2, '0')}`;
+    el.querySelector('.cut-t').textContent = title;
+    el.querySelector('.cut-s').textContent = sub;
+    el.classList.add('on');
+    clearTimeout(captionTimer);
+    captionTimer = setTimeout(() => el.classList.remove('on'), 7000);
+  }
+  setInterval(() => {
+    const now = performance.now();
+    if (!tourOn || document.hidden || now - lastUser < 20000 || now - lastCut < 12000) return;
+    for (let tries = 0; tries < beats.length; tries++) {
+      beat = (beat + 1) % beats.length;
+      const c = beats[beat]();
+      if (c) { caption(beat + 1, ...c); lastCut = now; break; }
+    }
+  }, 1000);
 }
 
 main().catch(err => {

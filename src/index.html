@@ -46,12 +46,14 @@
       <div class="hero-hud tl mono">
         <div><span class="k">OBJECTS</span> <span id="hud-count">--</span></div>
         <div><span class="k">ELEMENTS</span> <span id="hud-data">--</span></div>
+        <div id="hud-census" class="census-line"></div>
       </div>
       <div class="hero-hud tr">
         <div class="zoom" role="group" aria-label="Zoom presets">
           <button type="button" data-view="9500">LEO</button>
           <button type="button" data-view="30000">MEO</button>
           <button type="button" data-view="52000">GEO</button>
+          <button type="button" id="tour" aria-pressed="true" title="Cut between views on its own when you're not interacting">TOUR</button>
         </div>
       </div>
       <div class="hero-hud bl legend mono" aria-hidden="true">
@@ -61,6 +63,7 @@
         <span><i class="dot station"></i>CREWED</span>
         <span class="fade">BRIGHT = FRESH ELEMENTS</span>
       </div>
+      <div id="cut" class="cut" aria-live="polite"><span class="cut-n mono"></span><span class="cut-t"></span><span class="cut-s mono"></span></div>
       <div id="loading" class="loading mono">PROPAGATING…</div>
     </section>
 
@@ -117,9 +120,9 @@
         </div>
         <p class="note" id="wx-note"></p>
       </section>
-      <section class="panel" id="p-census" aria-labelledby="h-census">
-        <h2 id="h-census"><span>Census</span></h2>
-        <table class="tbl mono census" id="census"></table>
+      <section class="panel" id="p-sky" aria-labelledby="h-sky">
+        <h2 id="h-sky"><span>Sky over <span id="sky-obs">Kraków</span></span><span id="sky-tag" class="tag"></span></h2>
+        <div class="sky"><canvas id="sky" aria-label="Satellites above the observer's horizon, by compass direction and elevation"></canvas></div>
       </section>
       <section class="panel" id="p-log" aria-labelledby="h-log">
         <h2 id="h-log"><span>Log</span></h2>
