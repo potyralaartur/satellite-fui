@@ -19,6 +19,7 @@ e.g. `#25544` for the ISS.
 npm install
 npm run build      # → dist/ (uses data/ if fetched, else the seed snapshot)
 npm run serve      # http://localhost:8080
+npm run dev        # same, but rebuilds and reloads the page whenever src/ or data/ change
 ```
 
 `.github/workflows/pages.yml` fetches fresh CelesTrak (GP, SATCAT, full SOCRATES), NOAA and
