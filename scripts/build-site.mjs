@@ -4,6 +4,7 @@
 //   dist/app.js                     src/js/main.js bundled with satellite.js (esbuild)
 //   dist/data/snapshot.json         every dataset the page needs, joined by NORAD id
 //   dist/data/coast.json            Natural Earth 110m land outlines (world-atlas)
+//   dist/data/coast-hi.json         Natural Earth 50m land outlines, loaded on close zoom
 //
 // Data comes from ./data (written by `npm run fetch-data`) when present, otherwise from the
 // seed snapshot in data/seed-2026-10-10, so the site always builds offline.
@@ -262,11 +263,13 @@ async function loadAlerts() {
 
 // ---------- coastlines ----------
 
-function coastlines() {
-  const topo = require('world-atlas/land-110m.json');
+// Two levels of detail: 110m for the whole globe, 50m loaded once the viewer zooms in close.
+function coastlines(res = '110m', step = 0.05) {
+  const topo = require(`world-atlas/land-${res}.json`);
   const m = mesh(topo, topo.objects.land);
-  const r = v => Math.round(v * 10) / 10;
-  return m.coordinates.map(line => line.flatMap(([lon, lat]) => [r(lon), r(lat)]));
+  const r = v => Math.round(v / step) * step;
+  const q = v => Number(r(v).toFixed(3));
+  return m.coordinates.map(line => line.flatMap(([lon, lat]) => [q(lon), q(lat)]));
 }
 
 // ---------- main ----------
@@ -303,6 +306,9 @@ async function main() {
   const coast = JSON.stringify(coastlines());
   await writeFile(join(OUT, 'data/coast.json'), coast);
   log('coast.json', (coast.length / 1024).toFixed(0), 'KB');
+  const coastHi = JSON.stringify(coastlines('50m', 0.01));
+  await writeFile(join(OUT, 'data/coast-hi.json'), coastHi);
+  log('coast-hi.json', (coastHi.length / 1024).toFixed(0), 'KB');
 
   await build({
     entryPoints: [join(SRC, 'js/main.js')],

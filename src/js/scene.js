@@ -9,6 +9,15 @@ import { eciAt, sunEciKm } from './orbit.js';
 const DEG = Math.PI / 180;
 const TRACK_SAMPLES = 160;
 const MIN_VIEW = 150, FOCUS_FAR = 9000, FOCUS_NEAR = 3500;
+// Flat [lon, lat, ...] lines → Float32Array unit vectors in the Earth-fixed frame.
+const unitLines = lines => lines.map(l => {
+  const u = new Float32Array((l.length / 2) * 3);
+  for (let k = 0, j = 0; k < l.length; k += 2, j += 3) {
+    const lon = l[k] * DEG, lat = l[k + 1] * DEG, c = Math.cos(lat);
+    u[j] = c * Math.cos(lon); u[j + 1] = c * Math.sin(lon); u[j + 2] = Math.sin(lat);
+  }
+  return u;
+});
 const smoothstep = x => { const c = Math.max(0, Math.min(1, x)); return c * c * (3 - 2 * c); };
 
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -33,6 +42,12 @@ export class Scene {
     this.leaders = world.objects.filter(o => o.leader === o);
     this.cam = { yaw: -60 * DEG, pitch: 22 * DEG, view: 27000, targetView: 27000 };
     this.hidden = new Set(); // object types switched off in the legend
+    this.coastLo = unitLines(world.coast);
+    this.coastHi = null;
+    this.graticule = unitLines([
+      ...[-60, -30, 0, 30, 60].map(lat => { const l = []; for (let lon = -180; lon <= 180; lon += 3) l.push(lon, lat); return l; }),
+      ...Array.from({ length: 12 }, (_, i) => { const l = []; for (let lat = -90; lat <= 90; lat += 3) l.push(i * 30 - 180, lat); return l; }),
+    ]);
     this.lookAt = [0, 0, 0];
     this.focus = 0;
     this.lastDrag = 0;
@@ -354,27 +369,32 @@ export class Scene {
       return [x * cg - y * sg, x * sg + y * cg, z];
     };
     const day = new Path2D(), night = new Path2D(), grid = new Path2D();
-    const camDir = norm(cam.pos);
-    const strokeLine = (coords, pathFor) => {
-      let pen = false;
-      for (let k = 0; k < coords.length; k += 2) {
-        const p = toEci(coords[k], coords[k + 1]);
-        const n = [p[0] / EARTH_R, p[1] / EARTH_R, p[2] / EARTH_R];
-        // Visible if on the camera side of the horizon circle (a little slack for perspective).
-        if (dot(n, camDir) < EARTH_R / cam.dist0) { pen = false; continue; }
-        const s = this.project(cam, p);
-        if (!s) { pen = false; continue; }
-        const path = pathFor(n);
-        if (pen !== path) { path.moveTo(s[0], s[1]); pen = path; } else path.lineTo(s[0], s[1]);
+    const camDir = norm(cam.pos), horizon = EARTH_R / cam.dist0;
+    // Lines are unit vectors in the Earth-fixed frame, turned into ECI by GMST. Only the part on
+    // the camera's side of the horizon is drawn; where a line crosses from day to night the new
+    // path starts at the previous point, so the outline never breaks at the terminator.
+    const strokeLines = (lines, pathFor) => {
+      for (const u of lines) {
+        let pen = null, prev = null;
+        for (let k = 0; k < u.length; k += 3) {
+          const n = [u[k] * cg - u[k + 1] * sg, u[k] * sg + u[k + 1] * cg, u[k + 2]];
+          const s = dot(n, camDir) >= horizon && this.project(cam, [n[0] * EARTH_R, n[1] * EARTH_R, n[2] * EARTH_R]);
+          if (!s) { pen = prev = null; continue; }
+          const path = pathFor(n);
+          if (pen === path) path.lineTo(s[0], s[1]);
+          else { path.moveTo(...(prev ?? s)); path.lineTo(s[0], s[1]); pen = path; }
+          prev = s;
+        }
       }
     };
-    for (const line of this.world.coast) strokeLine(line, n => (dot(n, sun) > 0 ? day : night));
-    for (let lat = -60; lat <= 60; lat += 30) {
-      const pts = []; for (let lon = -180; lon <= 180; lon += 5) pts.push(lon, lat); strokeLine(pts, () => grid);
+    // Close in, swap to the finer 50m outlines (fetched once, the first time they're needed).
+    const close = cam.dist0 - EARTH_R < 20000;
+    if (close && !this.coastHi && !this.coastHiLoading) {
+      this.coastHiLoading = true;
+      fetch('data/coast-hi.json').then(r => r.json()).then(c => { this.coastHi = unitLines(c); }).catch(() => {});
     }
-    for (let lon = -180; lon < 180; lon += 30) {
-      const pts = []; for (let lat = -90; lat <= 90; lat += 5) pts.push(lon, lat); strokeLine(pts, () => grid);
-    }
+    strokeLines(close && this.coastHi ? this.coastHi : this.coastLo, n => (dot(n, sun) > 0 ? day : night));
+    strokeLines(this.graticule, () => grid);
     ctx.lineWidth = 0.6;
     ctx.strokeStyle = `rgba(${pal.land}, 0.10)`; ctx.stroke(grid);
     ctx.lineWidth = 0.9;
