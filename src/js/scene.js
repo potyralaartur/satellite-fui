@@ -116,9 +116,12 @@ export class Scene {
   // and by FOCUS_NEAR it is following it, so zooming in lands on the satellite, not the core.
   zoomTo(view, immediate = false) {
     const before = this.cam.targetView;
-    this.cam.targetView = Math.max(MIN_VIEW, Math.min(60000, view));
+    // Without a selection the camera looks at the Earth's centre, so it can't come closer than
+    // just above the surface; don't let the zoom wind past that into a dead zone.
+    const min = this.selected ? MIN_VIEW : (EARTH_R + 400) / 3.2;
+    this.cam.targetView = Math.max(min, Math.min(60000, view));
     if (immediate) this.cam.view = this.cam.targetView;
-    if (this.selected && before >= FOCUS_FAR && this.cam.targetView < FOCUS_FAR) this.faceSelected();
+    if (this.selected && before >= FOCUS_FAR && this.cam.targetView < FOCUS_FAR && this.selectedBehind()) this.faceSelected();
   }
 
   // Turn the camera so the selected object is on the near side of the Earth.
@@ -130,12 +133,25 @@ export class Scene {
     this.cam.targetPitch = Math.max(-1.2, Math.min(1.2, Math.asin(p[2] / Math.hypot(...p)) + 0.25));
   }
 
+  selectedBehind() {
+    const p = this.selectedPos;
+    if (!p) return false;
+    const { yaw, pitch } = this.cam;
+    const d = [Math.cos(pitch) * Math.cos(yaw), Math.cos(pitch) * Math.sin(yaw), Math.sin(pitch)];
+    return dot(d, norm(p)) < 0.2;
+  }
+
   toggleType(type, on) { if (on) this.hidden.delete(type); else this.hidden.add(type); }
 
   select(o, { zoom = true } = {}) {
-    this.selected = o?.leader ?? null;
+    const next = o?.leader ?? null;
+    if (next !== this.selected) { this.lookFrom = this.lookAt.slice(); this.lookSince = performance.now(); }
+    this.selected = next;
     this.selectedPos = null;
-    if (this.selected && zoom) this.zoomTo(Math.max(9500, (this.selected.apogee + EARTH_R) * 1.45));
+    // Zoom in to fit the new object's orbit, but never pull back out if the viewer is already closer.
+    const fit = this.selected && Math.max(9500, (this.selected.apogee + EARTH_R) * 1.45);
+    if (zoom && fit && fit < this.cam.targetView) this.zoomTo(fit);
+    else this.zoomTo(this.cam.targetView); // re-applies the closest-zoom limit
   }
 
   // A cut in the idle tour: ease the camera to a new angle and distance.
@@ -275,20 +291,16 @@ export class Scene {
     this.propagateSlice(date, warp);
     const t = date.getTime();
 
-    // Close zoom: ease the look-at point from the Earth's centre onto the selected object, and
-    // when nobody is dragging, slowly swing round with it so it never slips behind the planet.
+    // Close zoom: the look-at point slides from the Earth's centre onto the selected object as a
+    // pure function of zoom, with no easing of its own, so zooming never drifts or springs back.
     const si = this.selected ? this.leaders.indexOf(this.selected) : -1;
     this.selectedPos = si >= 0 ? this.positionNow(si, t) : null;
-    const want = this.selectedPos ? smoothstep((FOCUS_FAR - this.cam.view) / (FOCUS_FAR - FOCUS_NEAR)) : 0;
-    this.focus += (want - this.focus) * Math.min(1, dtMs / 400);
+    this.focus = this.selectedPos ? smoothstep((FOCUS_FAR - this.cam.view) / (FOCUS_FAR - FOCUS_NEAR)) : 0;
     const P = this.selectedPos ?? [0, 0, 0];
     this.lookAt = P.map(v => v * this.focus);
-    if (this.focus > 0.5 && this.cam.targetYaw === undefined && performance.now() - this.lastDrag > 3000 && !this.opts.reducedMotion) {
-      const ty = Math.atan2(P[1], P[0]), tp = Math.asin(P[2] / Math.hypot(...P)) + 0.25;
-      const kk = Math.min(1, dtMs / 4000);
-      this.cam.yaw += Math.atan2(Math.sin(ty - this.cam.yaw), Math.cos(ty - this.cam.yaw)) * kk;
-      this.cam.pitch += (Math.max(-1.2, Math.min(1.2, tp)) - this.cam.pitch) * kk;
-    }
+    // A new selection glides the look-at point over rather than jumping to it.
+    const g = this.lookFrom ? (performance.now() - this.lookSince) / 700 : 1;
+    if (g < 1) { const e = smoothstep(g); this.lookAt = this.lookAt.map((v, k) => this.lookFrom[k] + (v - this.lookFrom[k]) * e); }
     const cam = this.camera();
     const gmst = gstime(date);
     const sun = norm((({ x, y, z }) => [x, y, z])(sunEciKm(date)));
