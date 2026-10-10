@@ -27,6 +27,16 @@ function loadObserver() {
 }
 let observer = loadObserver();
 
+// How much of the canvas the floating HUD panels cover on each side (zero when they don't float).
+function hudInsets() {
+  const side = document.querySelector('.side');
+  if (getComputedStyle(side).position !== 'absolute') return {};
+  const c = $('hero').getBoundingClientRect();
+  const s = side.getBoundingClientRect(), b = document.querySelector('.band').getBoundingClientRect();
+  const t = document.querySelector('.top').getBoundingClientRect();
+  return { top: t.bottom - c.top, right: c.right - s.left, bottom: c.bottom - b.top, left: 0 };
+}
+
 async function main() {
   const world = await loadSnapshot();
   const { snap, objects, byId, radio } = world;
@@ -37,6 +47,7 @@ async function main() {
     getObserver: () => observer,
     onSelect: o => select(o),
     reducedMotion,
+    getInsets: hudInsets,
   });
 
   // ---------- selection ----------

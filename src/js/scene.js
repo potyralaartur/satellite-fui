@@ -51,6 +51,7 @@ export class Scene {
     this.w = Math.max(1, r.width); this.h = Math.max(1, r.height);
     this.canvas.width = Math.round(this.w * this.dpr);
     this.canvas.height = Math.round(this.h * this.dpr);
+    this.insets = { top: 0, right: 0, bottom: 0, left: 0, ...this.opts.getInsets?.() };
   }
 
   bindInput() {
@@ -132,9 +133,12 @@ export class Scene {
     const f = norm([-pos[0], -pos[1], -pos[2]]);
     const r = norm(cross(f, [0, 0, 1]));
     const u = cross(r, f);
-    const half = Math.min(this.w, this.h) / 2;
+    // Centre the Earth in the part of the canvas the HUD panels leave uncovered.
+    const { top, right, bottom, left } = this.insets;
+    const vw = Math.max(80, this.w - left - right), vh = Math.max(80, this.h - top - bottom);
+    const half = Math.min(vw, vh) / 2;
     const focal = half * 0.94 * dist / view;
-    return { pos, f, r, u, focal, dist, cx: this.w / 2, cy: this.h / 2 };
+    return { pos, f, r, u, focal, dist, cx: left + vw / 2, cy: top + vh / 2 };
   }
 
   // Returns [sx, sy, depth] or null when behind the camera.
@@ -430,7 +434,7 @@ export class Scene {
       if (ring) { ctx.beginPath(); ctx.arc(sx, sy, 8, 0, Math.PI * 2); ctx.stroke(); }
       // Leader line up and to the right, flipped left when the text would leave the canvas.
       const tw = ctx.measureText(text).width;
-      const dir = sx + 33 + tw > this.w - 8 ? -1 : 1;
+      const dir = sx + 33 + tw > this.w - this.insets.right - 8 ? -1 : 1;
       const lx = sx + dir * 18, ly = sy - 16;
       ctx.beginPath(); ctx.moveTo(sx + dir * (ring ? 6 : 3), sy - (ring ? 6 : 3)); ctx.lineTo(lx, ly); ctx.lineTo(lx + dir * 6, ly); ctx.stroke();
       ctx.fillText(text, dir > 0 ? lx + 9 : lx - 9 - tw, ly);

@@ -170,3 +170,48 @@ button { font: inherit; color: inherit; }
 .credits a { color: var(--ink-2); }
 
 @media (prefers-reduced-motion: reduce) { .loading { transition: none; } }
+
+/* Wide screens: cinematic HUD. The globe is the whole screen; header, side column, data band
+   and credits float over it as translucent glass, and the camera centres the Earth in the
+   space they leave free (see Scene.insets). */
+@media (min-width: 1001px) {
+  body { position: relative; --gap: 14px; --top-h: 54px; --side-w: clamp(300px, 24vw, 370px); --band-h: clamp(150px, 23vh, 220px); --foot-h: 26px; }
+  .top {
+    position: absolute; z-index: 5; inset: 0 0 auto 0; height: var(--top-h); border: 0;
+    background: linear-gradient(to bottom, rgba(var(--p-bg-rgb), .92), rgba(var(--p-bg-rgb), 0));
+  }
+  .layout { position: absolute; inset: 0; display: block; background: var(--bg); }
+  .hero { position: absolute; inset: 0; }
+  .side {
+    position: absolute; z-index: 3; top: var(--top-h); right: var(--gap); width: var(--side-w);
+    bottom: calc(var(--band-h) + var(--foot-h) + var(--gap) * 2);
+    background: transparent; gap: var(--gap);
+  }
+  .side .panel { border-bottom: 0; flex: none; }
+  .band {
+    position: absolute; z-index: 3; left: var(--gap); right: var(--gap); bottom: calc(var(--foot-h) + var(--gap) / 2);
+    height: var(--band-h); background: transparent; gap: var(--gap);
+    grid-template-columns: minmax(0, 1.35fr) minmax(0, .75fr) minmax(0, 1.2fr);
+  }
+  .hero-hud.tl { top: calc(var(--top-h) + 4px); }
+  .hero-hud.tr { top: calc(var(--top-h) + 4px); right: calc(var(--side-w) + var(--gap) * 2); }
+  .hero-hud.bl { bottom: calc(var(--band-h) + var(--foot-h) + var(--gap) * 2); right: calc(var(--side-w) + var(--gap) * 2); }
+  .credits {
+    position: absolute; z-index: 3; inset: auto 0 0 0; height: var(--foot-h); line-height: var(--foot-h);
+    padding-block: 0; border: 0; background: transparent;
+  }
+
+  /* Glass panels with corner brackets. */
+  .side .panel, .band > .panel {
+    position: relative; background: rgba(var(--p-panel-rgb), .58); border: 1px solid rgba(var(--p-text-rgb), .08);
+    -webkit-backdrop-filter: blur(8px) saturate(1.2); backdrop-filter: blur(8px) saturate(1.2);
+  }
+  .side .panel::before, .band > .panel::before, .side .panel::after, .band > .panel::after {
+    content: ""; position: absolute; width: 9px; height: 9px; pointer-events: none;
+    border: 1px solid rgba(var(--p-pay-rgb), .55);
+  }
+  .side .panel::before, .band > .panel::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
+  .side .panel::after, .band > .panel::after { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
+  .side { scrollbar-width: thin; scrollbar-color: rgba(var(--p-text-rgb), .15) transparent; }
+  .band > .panel { scrollbar-width: thin; scrollbar-color: rgba(var(--p-text-rgb), .15) transparent; }
+}
