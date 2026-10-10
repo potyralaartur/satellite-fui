@@ -169,6 +169,11 @@ async function main() {
 
   // ---------- controls ----------
   document.querySelectorAll('[data-warp]').forEach(b => b.addEventListener('click', () => { setWarp(Number(b.dataset.warp)); refreshObject(true); drawConj(); }));
+  document.querySelectorAll('[data-type]').forEach(b => b.addEventListener('click', () => {
+    const on = b.getAttribute('aria-pressed') !== 'true';
+    b.setAttribute('aria-pressed', String(on));
+    scene.toggleType(b.dataset.type, on);
+  }));
   const views = document.querySelectorAll('[data-view]');
   views.forEach(b => b.addEventListener('click', () => {
     scene.zoomTo(Number(b.dataset.view));

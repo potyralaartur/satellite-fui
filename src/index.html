@@ -22,7 +22,7 @@
   <header class="top">
     <div class="cell brand">
       <span class="r1">ORBITAL WATCH</span>
-      <span class="r2">SGP4 · CELESTRAK GP · ONE MODEL</span>
+      <span class="r2">SGP4 · CELESTRAK GP</span>
     </div>
     <div class="cell opt-w">
       <span class="r1"><span id="tb-obs-name">KRAKÓW</span> OBSERVER</span>
@@ -30,11 +30,11 @@
     </div>
     <div class="cell fig">
       <span class="big" id="tb-count">--</span>
-      <span class="r2">TRACKED · <span id="tb-sets">--</span> ELEMENT SETS</span>
+      <span class="r2">TRACKED<br><span id="tb-sets">--</span> SETS</span>
     </div>
     <div class="cell fig opt-w">
       <span class="big" id="tb-sky">--</span>
-      <span class="r2">ABOVE HORIZON NOW</span>
+      <span class="r2">ABOVE<br>HORIZON</span>
     </div>
     <div class="cell fig">
       <span class="big" id="tb-kp">--</span>
@@ -46,7 +46,7 @@
     </div>
     <div class="cell search" role="search">
       <label for="q" class="sr-only">Find a satellite by name or catalog number</label>
-      <input id="q" type="search" placeholder="FIND SATELLITE / NORAD ID" autocomplete="off" spellcheck="false">
+      <input id="q" type="search" placeholder="FIND SATELLITE OR NORAD ID" autocomplete="off" spellcheck="false">
       <ul id="q-results" class="results" role="listbox" hidden></ul>
     </div>
     <div class="cell clock">
@@ -68,17 +68,23 @@
         <div class="plate-t">ORBITAL SHELL · <span id="hud-count">--</span> OBJECTS</div>
         <div class="plate-s">ELEMENTS <span id="hud-data">--</span> · <span id="hud-census"></span></div>
         <div class="zoom" role="group" aria-label="Camera">
+          <button type="button" data-view="2500" aria-pressed="false" title="Follow the selected satellite up close">CLOSE</button>
           <button type="button" data-view="9500" aria-pressed="false">LEO</button>
           <button type="button" data-view="27000" aria-pressed="true">SHELL</button>
           <button type="button" data-view="52000" aria-pressed="false">GEO</button>
           <button type="button" id="tour" aria-pressed="true" title="Cut between views on its own when you're not interacting">TOUR</button>
         </div>
       </div>
-      <div class="plate bl legend" aria-hidden="true">
-        <div class="plate-t">OBJECT · ELEMENT AGE</div>
-        <div class="sw"><span><i class="dot pay"></i>PAYLOAD</span><span><i class="dot rb"></i>ROCKET BODY</span><span><i class="dot deb"></i>DEBRIS</span><span><i class="dot station"></i>CREWED</span></div>
-        <div class="ramp"><span>FRESH</span><i></i><span>7 D</span></div>
-        <div class="sw"><span><i class="leg n"></i>NORTHBOUND</span><span><i class="leg s"></i>SOUTHBOUND</span></div>
+      <div class="plate bl legend">
+        <div class="plate-t">SHOW · ELEMENT AGE</div>
+        <div class="sw filters" role="group" aria-label="Object types shown">
+          <button type="button" data-type="pay" aria-pressed="true"><i class="dot pay"></i>PAYLOAD</button>
+          <button type="button" data-type="rb" aria-pressed="true"><i class="dot rb"></i>ROCKET BODY</button>
+          <button type="button" data-type="deb" aria-pressed="true"><i class="dot deb"></i>DEBRIS</button>
+          <button type="button" data-type="station" aria-pressed="true"><i class="dot station"></i>CREWED</button>
+        </div>
+        <div class="ramp" aria-hidden="true"><span>FRESH</span><i></i><span>7 D</span></div>
+        <div class="sw" aria-hidden="true"><span><i class="leg n"></i>NORTHBOUND</span><span><i class="leg s"></i>SOUTHBOUND</span></div>
       </div>
       <div id="cut" class="plate br cut" aria-live="polite"><span class="cut-n"></span><span class="cut-t"></span><span class="cut-s"></span></div>
       <div id="loading" class="loading">PROPAGATING…</div>

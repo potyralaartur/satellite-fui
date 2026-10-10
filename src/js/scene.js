@@ -8,6 +8,8 @@ import { eciAt, sunEciKm } from './orbit.js';
 
 const DEG = Math.PI / 180;
 const TRACK_SAMPLES = 160;
+const MIN_VIEW = 1500, FOCUS_FAR = 9000, FOCUS_NEAR = 3500;
+const smoothstep = x => { const c = Math.max(0, Math.min(1, x)); return c * c * (3 - 2 * c); };
 
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
@@ -30,6 +32,10 @@ export class Scene {
     this.pal = readPalette();
     this.leaders = world.objects.filter(o => o.leader === o);
     this.cam = { yaw: -60 * DEG, pitch: 22 * DEG, view: 27000, targetView: 27000 };
+    this.hidden = new Set(); // object types switched off in the legend
+    this.lookAt = [0, 0, 0];
+    this.focus = 0;
+    this.lastDrag = 0;
     this.selected = null;
     this.conj = null; // { a, b, tca, label }
     this.tracks = new Map(); // id -> { t0, pts: Float64Array }
@@ -72,7 +78,7 @@ export class Scene {
     c.addEventListener('pointermove', e => {
       if (!ptrs.has(e.pointerId)) return;
       ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      this.lastInput = performance.now();
+      this.lastInput = this.lastDrag = performance.now();
       if (pinch && ptrs.size === 2) {
         const [a, b] = [...ptrs.values()];
         this.zoomTo(pinch.view * pinch.d / Math.max(10, Math.hypot(a.x - b.x, a.y - b.y)), true);
@@ -100,19 +106,35 @@ export class Scene {
     }, { passive: false });
     c.addEventListener('keydown', e => {
       const k = { ArrowLeft: [0.1, 0], ArrowRight: [-0.1, 0], ArrowUp: [0, 0.08], ArrowDown: [0, -0.08] }[e.key];
-      if (k) { this.cam.yaw += k[0]; this.cam.pitch = Math.max(-1.4, Math.min(1.4, this.cam.pitch + k[1])); e.preventDefault(); }
+      if (k) { this.lastInput = this.lastDrag = performance.now(); this.cam.yaw += k[0]; this.cam.pitch = Math.max(-1.4, Math.min(1.4, this.cam.pitch + k[1])); e.preventDefault(); }
       if (e.key === '+' || e.key === '=') this.zoomTo(this.cam.targetView / 1.3, true);
       if (e.key === '-') this.zoomTo(this.cam.targetView * 1.3, true);
     });
   }
 
+  // Below FOCUS_FAR the camera starts to centre on the selected object instead of the Earth,
+  // and by FOCUS_NEAR it is following it, so zooming in lands on the satellite, not the core.
   zoomTo(view, immediate = false) {
-    this.cam.targetView = Math.max(7600, Math.min(60000, view));
+    const before = this.cam.targetView;
+    this.cam.targetView = Math.max(MIN_VIEW, Math.min(60000, view));
     if (immediate) this.cam.view = this.cam.targetView;
+    if (this.selected && before >= FOCUS_FAR && this.cam.targetView < FOCUS_FAR) this.faceSelected();
   }
+
+  // Turn the camera so the selected object is on the near side of the Earth.
+  faceSelected() {
+    const p = this.selectedPos;
+    if (!p) return;
+    this.cutAt = performance.now();
+    this.cam.targetYaw = Math.atan2(p[1], p[0]);
+    this.cam.targetPitch = Math.max(-1.2, Math.min(1.2, Math.asin(p[2] / Math.hypot(...p)) + 0.25));
+  }
+
+  toggleType(type, on) { if (on) this.hidden.delete(type); else this.hidden.add(type); }
 
   select(o, { zoom = true } = {}) {
     this.selected = o?.leader ?? null;
+    this.selectedPos = null;
     if (this.selected && zoom) this.zoomTo(Math.max(9500, (this.selected.apogee + EARTH_R) * 1.45));
   }
 
@@ -140,8 +162,11 @@ export class Scene {
   camera() {
     const { yaw, pitch, view } = this.cam;
     const dist = view * 3.2;
-    const pos = [dist * Math.cos(pitch) * Math.cos(yaw), dist * Math.cos(pitch) * Math.sin(yaw), dist * Math.sin(pitch)];
-    const f = norm([-pos[0], -pos[1], -pos[2]]);
+    const L = this.lookAt;
+    let pos = [L[0] + dist * Math.cos(pitch) * Math.cos(yaw), L[1] + dist * Math.cos(pitch) * Math.sin(yaw), L[2] + dist * Math.sin(pitch)];
+    const r0 = Math.hypot(...pos);
+    if (r0 < EARTH_R + 150) pos = pos.map(v => v * (EARTH_R + 150) / r0); // never inside the planet
+    const f = norm(sub(L, pos));
     const r = norm(cross(f, [0, 0, 1]));
     const u = cross(r, f);
     // Centre the Earth in the part of the canvas the HUD panels leave uncovered.
@@ -149,7 +174,7 @@ export class Scene {
     const vw = Math.max(80, this.w - left - right), vh = Math.max(80, this.h - top - bottom);
     const half = Math.min(vw, vh) / 2;
     const focal = half * 0.94 * dist / view;
-    return { pos, f, r, u, focal, dist, cx: left + vw / 2, cy: top + vh / 2 };
+    return { pos, f, r, u, focal, dist, dist0: Math.hypot(...pos), cx: left + vw / 2, cy: top + vh / 2 };
   }
 
   // Returns [sx, sy, depth] or null when behind the camera.
@@ -238,17 +263,32 @@ export class Scene {
     const ctx = this.ctx, pal = this.pal;
     const idle = performance.now() - this.lastInput > 4000;
     const k = Math.min(1, dtMs / 700);
-    if (this.lastInput > (this.cutAt ?? 0)) this.cam.targetYaw = this.cam.targetPitch = undefined; // user took over
+    if (this.lastDrag > (this.cutAt ?? 0)) this.cam.targetYaw = this.cam.targetPitch = undefined; // user took over
     if (this.cam.targetYaw !== undefined) {
       const d = Math.atan2(Math.sin(this.cam.targetYaw - this.cam.yaw), Math.cos(this.cam.targetYaw - this.cam.yaw));
       this.cam.yaw += d * k;
       if (Math.abs(d) < 0.002) this.cam.targetYaw = undefined;
-    } else if (idle && !this.opts.reducedMotion) this.cam.yaw += dtMs * 0.000035;
+    } else if (idle && !this.opts.reducedMotion && this.focus < 0.1) this.cam.yaw += dtMs * 0.000035;
     if (this.cam.targetPitch !== undefined) this.cam.pitch += (this.cam.targetPitch - this.cam.pitch) * k;
     this.cam.view += (this.cam.targetView - this.cam.view) * Math.min(1, dtMs / 350);
 
     this.propagateSlice(date, warp);
     const t = date.getTime();
+
+    // Close zoom: ease the look-at point from the Earth's centre onto the selected object, and
+    // when nobody is dragging, slowly swing round with it so it never slips behind the planet.
+    const si = this.selected ? this.leaders.indexOf(this.selected) : -1;
+    this.selectedPos = si >= 0 ? this.positionNow(si, t) : null;
+    const want = this.selectedPos ? smoothstep((FOCUS_FAR - this.cam.view) / (FOCUS_FAR - FOCUS_NEAR)) : 0;
+    this.focus += (want - this.focus) * Math.min(1, dtMs / 400);
+    const P = this.selectedPos ?? [0, 0, 0];
+    this.lookAt = P.map(v => v * this.focus);
+    if (this.focus > 0.5 && this.cam.targetYaw === undefined && performance.now() - this.lastDrag > 3000 && !this.opts.reducedMotion) {
+      const ty = Math.atan2(P[1], P[0]), tp = Math.asin(P[2] / Math.hypot(...P)) + 0.25;
+      const kk = Math.min(1, dtMs / 4000);
+      this.cam.yaw += Math.atan2(Math.sin(ty - this.cam.yaw), Math.cos(ty - this.cam.yaw)) * kk;
+      this.cam.pitch += (Math.max(-1.2, Math.min(1.2, tp)) - this.cam.pitch) * kk;
+    }
     const cam = this.camera();
     const gmst = gstime(date);
     const sun = norm((({ x, y, z }) => [x, y, z])(sunEciKm(date)));
@@ -268,21 +308,31 @@ export class Scene {
   drawEarth(cam, gmst, sun) {
     const ctx = this.ctx, pal = this.pal;
     const c = this.project(cam, [0, 0, 0]);
-    const rad = cam.focal * EARTH_R / Math.sqrt(cam.dist ** 2 - EARTH_R ** 2);
-    // Disc: night side colour with a soft glow on the hemisphere facing the sun.
-    ctx.beginPath(); ctx.arc(c[0], c[1], rad, 0, Math.PI * 2);
-    ctx.fillStyle = `rgb(${pal.night})`; ctx.fill();
+    if (!c) return;
+    const rad = cam.focal * EARTH_R / Math.sqrt(cam.dist0 ** 2 - EARTH_R ** 2) * (cam.dist0 / c[2]);
+    // Disc: the true horizon circle projected (an ellipse when the Earth sits off-axis at close
+    // zoom), filled night-side colour with a soft glow on the hemisphere facing the sun.
+    const cd = norm(cam.pos), hr = EARTH_R / cam.dist0;
+    const hc = cd.map(v => v * EARTH_R * hr), hrad = EARTH_R * Math.sqrt(1 - hr * hr);
+    const ha = norm(cross(cd, Math.abs(cd[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0])), hb = cross(cd, ha);
+    const disc = new Path2D(); let first = true;
+    for (let k = 0; k <= 128; k++) {
+      const th = (k / 128) * Math.PI * 2, cs = Math.cos(th) * hrad, sn = Math.sin(th) * hrad;
+      const s = this.project(cam, [hc[0] + ha[0] * cs + hb[0] * sn, hc[1] + ha[1] * cs + hb[1] * sn, hc[2] + ha[2] * cs + hb[2] * sn]);
+      if (!s) continue;
+      if (first) { disc.moveTo(s[0], s[1]); first = false; } else disc.lineTo(s[0], s[1]);
+    }
+    disc.closePath();
+    ctx.fillStyle = `rgb(${pal.night})`; ctx.fill(disc);
     const sp = this.project(cam, sun.map(v => v * EARTH_R));
     const facing = -dot(sun, cam.f); // >0 when the lit side faces the camera
     if (sp) {
       const g = ctx.createRadialGradient(sp[0], sp[1], 0, sp[0], sp[1], rad * 1.6);
       g.addColorStop(0, `rgba(${pal.sun}, ${0.10 + 0.10 * Math.max(0, facing)})`);
       g.addColorStop(1, `rgba(${pal.sun}, 0)`);
-      ctx.save(); ctx.clip(); ctx.fillStyle = g; ctx.fillRect(c[0] - rad, c[1] - rad, rad * 2, rad * 2); ctx.restore();
+      ctx.save(); ctx.clip(disc); ctx.fillStyle = g; ctx.fillRect(0, 0, this.w, this.h); ctx.restore();
     }
-    // Limb
-    ctx.beginPath(); ctx.arc(c[0], c[1], rad, 0, Math.PI * 2);
-    ctx.strokeStyle = `rgba(${pal.land}, 0.35)`; ctx.lineWidth = 1; ctx.stroke();
+    ctx.strokeStyle = `rgba(${pal.land}, 0.35)`; ctx.lineWidth = 1; ctx.stroke(disc);
 
     // Surface lines: graticule and coastlines, ECEF → ECI by GMST, only the near hemisphere.
     const cg = Math.cos(gmst), sg = Math.sin(gmst);
@@ -299,7 +349,7 @@ export class Scene {
         const p = toEci(coords[k], coords[k + 1]);
         const n = [p[0] / EARTH_R, p[1] / EARTH_R, p[2] / EARTH_R];
         // Visible if on the camera side of the horizon circle (a little slack for perspective).
-        if (dot(n, camDir) < EARTH_R / cam.dist) { pen = false; continue; }
+        if (dot(n, camDir) < EARTH_R / cam.dist0) { pen = false; continue; }
         const s = this.project(cam, p);
         if (!s) { pen = false; continue; }
         const path = pathFor(n);
@@ -325,7 +375,7 @@ export class Scene {
     for (let k = 0; k <= 180; k++) {
       const th = (k / 180) * Math.PI * 2;
       const n = [a[0] * Math.cos(th) + b[0] * Math.sin(th), a[1] * Math.cos(th) + b[1] * Math.sin(th), a[2] * Math.cos(th) + b[2] * Math.sin(th)];
-      if (dot(n, camDir) < EARTH_R / cam.dist) { pen = false; continue; }
+      if (dot(n, camDir) < EARTH_R / cam.dist0) { pen = false; continue; }
       const s = this.project(cam, n.map(v => v * EARTH_R));
       if (!s) { pen = false; continue; }
       if (pen) term.lineTo(s[0], s[1]); else { term.moveTo(s[0], s[1]); pen = true; }
@@ -335,7 +385,7 @@ export class Scene {
     // Observer
     const ob = this.opts.getObserver();
     const op = toEci(ob.lonDeg, ob.latDeg);
-    if (dot(norm(op), camDir) > EARTH_R / cam.dist) {
+    if (dot(norm(op), camDir) > EARTH_R / cam.dist0) {
       const s = this.project(cam, op);
       if (s) {
         ctx.strokeStyle = `rgb(${pal.observer})`; ctx.lineWidth = 1;
@@ -353,11 +403,12 @@ export class Scene {
     const jobs = [];
     const add = (o, style, center = t, key) => jobs.push({ pts: this.track(o, center, key), style });
 
-    // Stations and the brightest objects as a faint lattice; built lazily so loading stays fast.
+    // Crewed stations' orbits stay on; everything else only when selected, so the picture
+    // doesn't drown in lines. Built lazily so loading stays fast.
     let built = 0;
     for (const o of this.leaders) {
-      const style = o.flags.has('station') ? 'station' : o.flags.has('visual') ? 'faint' : null;
-      if (!style || o === this.selected) continue;
+      if (!o.flags.has('station') || o === this.selected || this.hidden.has('station')) continue;
+      const style = 'station';
       if (!this.tracks.has(String(o.id)) && built++ > 6) continue;
       add(o, style);
     }
@@ -387,7 +438,7 @@ export class Scene {
       }
     }
     const ink = { faint: pal.flux, station: pal.station, sel: pal.text, conjA: pal.hot, conjB: pal.warn };
-    const alpha = { faint: 0.45, station: 0.28, sel: 0.75, conjA: 0.8, conjB: 0.8 };
+    const alpha = { faint: 0.45, station: 0.2, sel: 0.75, conjA: 0.8, conjB: 0.8 };
     // The strongest lines breathe on a slow sine so the frame never sits perfectly still.
     const breathe = this.opts.reducedMotion ? 1 : 0.82 + 0.18 * Math.sin(performance.now() / 6500 * Math.PI * 2);
     for (const { style, back, leg, path } of Object.values(buckets)) {
@@ -432,15 +483,22 @@ export class Scene {
       if (this.occluded(cam, p)) continue;
       this.screen[i * 2] = s[0]; this.screen[i * 2 + 1] = s[1];
       const type = o.flags.has('station') ? 'station' : o.type === 'DEB' ? 'deb' : o.type === 'R/B' ? 'rb' : 'pay';
+      if (this.hidden.has(type) && o !== this.selected) continue;
       const age = (now - o.epoch) / 864e5;
       const fresh = age < 1 ? 2 : age < 3 ? 1 : 0;
       push(`${type}|${fresh}`, s[0], s[1]);
     }
-    const alpha = [0.35, 0.6, 0.95];
+    // Kept deliberately quiet: thousands of points add up under 'lighter', so each one is small
+    // and dim, debris and rocket bodies dimmer still, and everything steps back when one
+    // object is selected. Closer in, points get a little bigger again.
+    const fresh = [0.45, 0.7, 1];
+    const base = { pay: 0.5, rb: 0.42, deb: 0.32, station: 1 };
+    const quiet = this.selected ? 0.6 : 1;
+    const grow = this.cam.view < 6000 ? 1.6 : 1;
     for (const [key, xy] of groups) {
-      const [type, fresh] = key.split('|');
-      const big = type === 'station' ? 3 : 1.6;
-      ctx.fillStyle = `rgba(${pal[type]}, ${alpha[fresh]})`;
+      const [type, f] = key.split('|');
+      const big = type === 'station' ? 3 : 1.25 * grow;
+      ctx.fillStyle = `rgba(${pal[type]}, ${base[type] * fresh[f] * (type === 'station' ? 1 : quiet)})`;
       for (let k = 0; k < xy.length; k += 2) ctx.fillRect(xy[k] - big / 2, xy[k + 1] - big / 2, big, big);
     }
   }
@@ -495,6 +553,36 @@ export class Scene {
       const [x, y] = this.tcaScreen;
       ctx.fillStyle = `rgb(${pal.hot})`;
       ctx.fillText(`TCA ${this.conj.label}`, x + 12, y + 14);
+    }
+    // Close in, name the objects around the selection.
+    if (this.selected && this.cam.view < 4500) {
+      const si = this.leaders.indexOf(this.selected);
+      const x0 = this.screen[si * 2], y0 = this.screen[si * 2 + 1];
+      if (Number.isFinite(x0)) {
+        const near = [];
+        for (let i = 0; i < this.leaders.length; i++) {
+          if (i === si) continue;
+          const x = this.screen[i * 2], y = this.screen[i * 2 + 1];
+          if (!Number.isFinite(x) || x > this.w - this.insets.right - 60) continue;
+          const d = (x - x0) ** 2 + (y - y0) ** 2;
+          if (d > 60 * 60 && d < 320 * 320) near.push([d, i]);
+        }
+        near.sort((a, b) => a[0] - b[0]);
+        ctx.font = '9px "Space Mono", monospace';
+        ctx.fillStyle = `rgba(${pal.dim}, 0.9)`;
+        // Skip any name that would overlap one already placed (or the selection's own label).
+        const boxes = [[x0 - 30, y0 - 50, 260, 80]];
+        let shown = 0;
+        for (const [, i] of near) {
+          if (shown >= 8) break;
+          const name = this.leaders[i].name, x = this.screen[i * 2] + 5, y = this.screen[i * 2 + 1] - 5;
+          const box = [x - 2, y - 7, ctx.measureText(name).width + 4, 13];
+          if (boxes.some(b => box[0] < b[0] + b[2] && b[0] < box[0] + box[2] && box[1] < b[1] + b[3] && b[1] < box[1] + box[3])) continue;
+          boxes.push(box); shown++;
+          ctx.fillText(name, x, y);
+        }
+        ctx.font = '10px "Space Mono", monospace';
+      }
     }
     if (this.selected) {
       const p = this.positionNow(this.leaders.indexOf(this.selected), t);
