@@ -1,0 +1,21 @@
+{
+  "source": "NOAA SWPC services.swpc.noaa.gov/products/summary/",
+  "retrieved_utc": "2026-10-10T21:21:00Z",
+  "solar_wind_speed_km_s": {
+    "value": 761,
+    "time_tag": "2026-10-10T21:13:00Z"
+  },
+  "imf_bt_nT": {
+    "value": 16,
+    "time_tag": "2026-10-10T21:13:00Z"
+  },
+  "imf_bz_gsm_nT": {
+    "value": 3,
+    "time_tag": "2026-10-10T21:13:00Z"
+  },
+  "f10_7_cm_flux_sfu": {
+    "value": 126,
+    "time_tag": "2026-10-10T20:00:00Z"
+  },
+  "note": "noaa-scales.json reported G0/S0/R0 for the 21:21 UTC current slot despite Kp 7 (15-18 UTC) in noaa-kp-3h.csv; scales lag the 3-hour index. Check both before labelling a storm level."
+}

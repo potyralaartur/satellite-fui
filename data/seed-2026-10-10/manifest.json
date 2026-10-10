@@ -1,0 +1,28 @@
+{
+  "note": "Small live snapshot pulled through a browser on 2026-10-10 between 21:15 and 21:25 UTC, so the project has real data before scripts/fetch-data.mjs is run. Values are verbatim from the sources; only the file format was normalised (Kp and SOCRATES rows converted to CSV).",
+  "files": {
+    "celestrak-stations.csv": {
+      "url": "https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=csv",
+      "rows": 22,
+      "credit": "CelesTrak GP data (18 SDS via Space-Track)",
+      "notes": "ISS and CSS modules and docked vehicles share one element set, so they propagate to the same point. Five objects already carry 6-digit catalog numbers (100057, 100712, 100882) that the TLE format cannot represent."
+    },
+    "noaa-kp-3h.csv": {
+      "url": "https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json",
+      "rows": 63,
+      "range_utc": "2026-10-03T00:00Z to 2026-10-10T18:00Z",
+      "credit": "NOAA SWPC (public domain)",
+      "notes": "Geomagnetic storm in progress at snapshot time: Kp 7 at 15-18 UTC and 6.67 at 18-21 UTC on 2026-10-10."
+    },
+    "noaa-space-weather-summary.json": {
+      "url": "https://services.swpc.noaa.gov/products/summary/ (solar-wind-speed, solar-wind-mag-field, 10cm-flux) and products/noaa-scales.json",
+      "credit": "NOAA SWPC (public domain)"
+    },
+    "socrates-top10-maxprob.csv": {
+      "url": "https://celestrak.org/SOCRATES/ (Top 10 Conjunctions by Maximum Probability table)",
+      "rows": 10,
+      "credit": "CelesTrak SOCRATES Plus",
+      "notes": "max_probability is a conservative upper bound from public GP data, not an operator Pc. Rows 6-10 (ISS ZVEZDA vs SOYUZ-MS 29) are a docked pair, not a real threat: filter pairs whose rel_speed is ~0 km/s. Row 1 (STARLINK-4429 vs COSMOS 2251 DEB, 7 m at 13.95 km/s on 2026-10-13) is the genuine headline."
+    }
+  }
+}

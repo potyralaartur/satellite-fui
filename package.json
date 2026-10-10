@@ -1,0 +1,24 @@
+{
+  "name": "satellite-fui",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Cinematic, real-data satellite tracker: one SGP4 model drives every view",
+  "type": "module",
+  "scripts": {
+    "fetch-data": "node scripts/fetch-data.mjs",
+    "demo": "node scripts/propagate-demo.mjs",
+    "build": "node scripts/build-site.mjs",
+    "serve": "node scripts/serve.mjs"
+  },
+  "dependencies": {
+    "satellite.js": "7.1.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "topojson-client": "3.1.0",
+    "world-atlas": "2.0.2"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
